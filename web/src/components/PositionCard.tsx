@@ -10,9 +10,6 @@ function getMeteoraPoolUrl(pool: string) {
   return `https://app.meteora.ag/dlmm/${pool}`;
 }
 
-function getMeteoraPositionUrl(pool: string, position: string) {
-  return `https://app.meteora.ag/dlmm/${pool}?position=${position}`;
-}
 
 function getOrbTokenUrl(mint: string) {
   return `https://orbmarkets.io/token/${mint}`;
@@ -28,7 +25,7 @@ function formatAge(minutes: number): string {
 }
 
 function PositionCardInner({ position }: { position: PositionInfo }) {
-  const { pair, pool, position: positionAddr, base_mint, in_range, pnl_pct, unclaimed_fees_sol, unclaimed_fees_usd, age_minutes, active_bin, lower_bin, upper_bin } = position;
+  const { pair, pool, base_mint, in_range, pnl_pct, unclaimed_fees_sol, unclaimed_fees_usd, age_minutes, active_bin, lower_bin, upper_bin } = position;
 
   const pnlColor = pnl_pct >= 0 ? "text-emerald-400" : "text-red-400";
   const fees = unclaimed_fees_sol != null ? `${unclaimed_fees_sol.toFixed(4)} SOL` : unclaimed_fees_usd != null ? `$${unclaimed_fees_usd.toFixed(2)}` : "--";
