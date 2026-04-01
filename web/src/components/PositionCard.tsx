@@ -7,7 +7,11 @@ import BinRangeChart from "./BinRangeChart";
 const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
 
 function getMeteoraPoolUrl(pool: string) {
-  return `https://meteora.ag/dlmm/${pool}`;
+  return `https://app.meteora.ag/dlmm/${pool}`;
+}
+
+function getMeteoraPositionUrl(pool: string, position: string) {
+  return `https://app.meteora.ag/dlmm/${pool}?position=${position}`;
 }
 
 function getOrbTokenUrl(mint: string) {
@@ -24,7 +28,7 @@ function formatAge(minutes: number): string {
 }
 
 function PositionCardInner({ position }: { position: PositionInfo }) {
-  const { pair, pool, base_mint, in_range, pnl_pct, unclaimed_fees_sol, unclaimed_fees_usd, age_minutes, active_bin, lower_bin, upper_bin } = position;
+  const { pair, pool, position: positionAddr, base_mint, in_range, pnl_pct, unclaimed_fees_sol, unclaimed_fees_usd, age_minutes, active_bin, lower_bin, upper_bin } = position;
 
   const pnlColor = pnl_pct >= 0 ? "text-emerald-400" : "text-red-400";
   const fees = unclaimed_fees_sol != null ? `${unclaimed_fees_sol.toFixed(4)} SOL` : unclaimed_fees_usd != null ? `$${unclaimed_fees_usd.toFixed(2)}` : "--";
@@ -42,6 +46,11 @@ function PositionCardInner({ position }: { position: PositionInfo }) {
             </span>
           </div>
           <div className="flex flex-wrap gap-2 opacity-88 transition-opacity group-hover:opacity-100">
+            <Button asChild size="sm" variant="outline">
+              <a href={getMeteoraPositionUrl(pool, positionAddr)} target="_blank" rel="noreferrer">
+                My Position
+              </a>
+            </Button>
             <Button asChild size="sm" variant="outline">
               <a href={getMeteoraPoolUrl(pool)} target="_blank" rel="noreferrer">
                 Pool

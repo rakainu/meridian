@@ -1045,6 +1045,7 @@ Focus on: hold duration, entry/exit timing, what win rates look like, whether sc
           const fees = unit === "sol" ? `${p.unclaimed_fees_sol ?? "?"} SOL` : `$${p.unclaimed_fees_usd}`;
           const pnl = unit === "sol" ? `${p.pnl_sol ?? "?"} SOL` : `$${p.pnl_usd}`;
           msg += `\n  ${p.pair} ${status} | fees: ${fees} | pnl: ${pnl} (${p.pnl_pct}%)`;
+          if (p.pool) msg += `\n  https://app.meteora.ag/dlmm/${p.pool}`;
         }
         await sendMessage(msg);
       } catch (e) {
