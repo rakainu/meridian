@@ -47,11 +47,6 @@ function PositionCardInner({ position }: { position: PositionInfo }) {
           </div>
           <div className="flex flex-wrap gap-2 opacity-88 transition-opacity group-hover:opacity-100">
             <Button asChild size="sm" variant="outline">
-              <a href={getMeteoraPositionUrl(pool, positionAddr)} target="_blank" rel="noreferrer">
-                My Position
-              </a>
-            </Button>
-            <Button asChild size="sm" variant="outline">
               <a href={getMeteoraPoolUrl(pool)} target="_blank" rel="noreferrer">
                 Pool
               </a>
