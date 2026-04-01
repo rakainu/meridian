@@ -118,12 +118,15 @@ export function startServer(timersFn) {
     res.json(getHistory());
   });
 
-  app.get("/api/performance", (_req, res) => {
+  app.get("/api/performance", async (_req, res) => {
     try {
       const period = _req.query.period || "daily";
       const hours = period === "weekly" ? 168 : 24;
       const history = getPerformanceHistory({ hours, limit: 200 });
-      const solPrice = _startupCache.wallet?.sol_price || 0;
+      let solPrice = _startupCache.wallet?.sol_price || 0;
+      if (!solPrice) {
+        try { const w = await getWalletBalances(); solPrice = w?.sol_price || 0; } catch {}
+      }
       const positions = history.positions || [];
       const totalPnlUsd = positions.reduce((s, r) => s + (r.pnl_usd ?? 0), 0);
       const totalFeesUsd = positions.reduce((s, r) => s + (r.fees_earned_usd ?? 0), 0);
