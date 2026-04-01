@@ -9,7 +9,7 @@ import ToastProvider from "./components/ToastProvider";
 export default function App() {
   const {
     connected, notifications, status, timers,
-    positions, wallet, candidates, lpOverview,
+    positions, wallet, lpOverview,
     sendMessage,
   } = useWebSocket();
 

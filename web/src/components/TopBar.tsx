@@ -9,10 +9,6 @@ interface TopBarProps {
 }
 
 export default function TopBar({ connected, status, timers, wallet, onCommand }: TopBarProps) {
-  const mode = typeof window !== "undefined"
-    ? (document.title.includes("DRY") ? "DRY RUN" : "LIVE")
-    : "LIVE";
-
   return (
     <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: "1px solid var(--color-border)" }}>
       <div className="flex items-center gap-2.5">
