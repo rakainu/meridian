@@ -47,14 +47,14 @@ export default function ActivityFeed({ notifications }: { notifications: Notific
       className="flex h-full flex-col overflow-hidden rounded-xl p-3.5"
       style={{ background: "var(--color-card)", border: "1px solid var(--color-border)" }}
     >
-      <span className="mb-2.5 text-[10px] font-semibold uppercase tracking-[1.5px]" style={{ color: "var(--color-text-dim)" }}>
+      <span className="mb-2.5 text-xs font-semibold uppercase tracking-[1.5px]" style={{ color: "var(--color-text-dim)" }}>
         Activity
       </span>
       <div className="flex-1 overflow-y-auto">
         {recent.length === 0 ? (
-          <span className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>No activity yet</span>
+          <span className="text-sm" style={{ color: "var(--color-text-faint)" }}>No activity yet</span>
         ) : (
-          <div className="space-y-0.5 text-[11px]" style={{ lineHeight: "2" }}>
+          <div className="space-y-0.5 text-sm" style={{ lineHeight: "2" }}>
             {recent.map((n) => (
               <div key={n.id} className="flex items-start gap-1.5">
                 <span style={{ color: dotColor(n.event) }}>●</span>

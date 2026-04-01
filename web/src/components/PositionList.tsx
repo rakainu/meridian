@@ -35,9 +35,9 @@ function PositionCard({ p }: { p: PositionInfo }) {
       {/* Header */}
       <div className="mb-2.5 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-[13px] font-bold text-white">{p.pair}</span>
+          <span className="text-base font-bold text-white">{p.pair}</span>
           <span
-            className="rounded px-2 py-0.5 text-[9px] font-semibold"
+            className="rounded px-2 py-0.5 text-[11px] font-semibold"
             style={{
               background: inRange ? "rgba(99,220,190,0.08)" : "rgba(251,146,60,0.08)",
               color: accent,
@@ -47,14 +47,14 @@ function PositionCard({ p }: { p: PositionInfo }) {
           </span>
         </div>
         <div className="flex items-center gap-2.5">
-          <span className="text-[10px] font-medium" style={{ color: accent }}>
+          <span className="text-xs font-medium" style={{ color: accent }}>
             ● {inRange ? "In Range" : `OOR ${p.pnl_pct >= 0 ? "↑" : "↓"}`}
           </span>
           <a
             href={`https://app.meteora.ag/dlmm/${p.pool}`}
             target="_blank"
             rel="noreferrer"
-            className="text-[10px] opacity-60 transition-opacity hover:opacity-100"
+            className="text-xs opacity-60 transition-opacity hover:opacity-100"
             style={{ color: "var(--color-teal-light)" }}
           >
             Pool ↗
@@ -103,9 +103,9 @@ function Stat({ label, value, color, dim, large }: {
 }) {
   return (
     <div>
-      <span className="text-[9px] uppercase tracking-wide" style={{ color: "var(--color-text-dim)" }}>{label}</span>
+      <span className="text-[11px] uppercase tracking-wide" style={{ color: "var(--color-text-dim)" }}>{label}</span>
       <div
-        className={`font-semibold ${large ? "text-[16px]" : "text-[13px]"}`}
+        className={`font-semibold ${large ? "text-lg" : "text-sm"}`}
         style={{ color: color || (dim ? "var(--color-text)" : "var(--color-text-bright)") }}
       >
         {value}
@@ -120,7 +120,7 @@ function EmptyState() {
       className="flex h-40 items-center justify-center rounded-xl"
       style={{ background: "var(--color-card)", border: "1px solid var(--color-border)" }}
     >
-      <span className="text-sm" style={{ color: "var(--color-text-faint)" }}>
+      <span className="text-base" style={{ color: "var(--color-text-faint)" }}>
         No open positions — waiting for next screening cycle
       </span>
     </div>

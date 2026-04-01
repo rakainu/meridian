@@ -25,11 +25,11 @@ export default function App() {
         onCommand={sendMessage}
       />
 
-      <div className="flex flex-1 gap-3.5 overflow-hidden px-4 pb-4">
+      <div className="flex flex-1 gap-4 overflow-hidden px-4 pb-4">
         {/* Left: Positions */}
         <div className="flex flex-col" style={{ flex: "5 1 0%", minHeight: 0 }}>
-          <div className="mb-2.5">
-            <span className="text-[10px] font-semibold uppercase tracking-[1.5px]" style={{ color: "var(--color-text-dim)" }}>
+          <div className="mb-3">
+            <span className="text-xs font-semibold uppercase tracking-[1.5px]" style={{ color: "var(--color-text-dim)" }}>
               Open Positions ({positions?.total_positions ?? 0})
             </span>
           </div>
@@ -39,7 +39,12 @@ export default function App() {
         </div>
 
         {/* Right: Stats + Activity */}
-        <div className="flex flex-col gap-2.5" style={{ flex: "3 1 0%", minHeight: 0 }}>
+        <div className="flex flex-col gap-3" style={{ flex: "3 1 0%", minHeight: 0 }}>
+          <div className="mb-3">
+            <span className="text-xs font-semibold uppercase tracking-[1.5px]" style={{ color: "var(--color-text-dim)" }}>
+              &nbsp;
+            </span>
+          </div>
           <PerformancePanel lpOverview={lpOverview} />
           <div className="flex-1 overflow-hidden">
             <ActivityFeed notifications={notifications} />
