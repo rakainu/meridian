@@ -1,72 +1,52 @@
-import { useState, useEffect, useCallback } from "react";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useToastNotifications } from "./hooks/useToastNotifications";
-import ChatPanel from "./components/ChatPanel";
-import DataSidebar from "./components/DataSidebar";
-import StatusBar from "./components/StatusBar";
-import CommandPalette from "./components/CommandPalette";
-import KnowledgeGraph from "./components/KnowledgeGraph";
+import TopBar from "./components/TopBar";
+import PositionList from "./components/PositionList";
+import PerformancePanel from "./components/PerformancePanel";
+import ActivityFeed from "./components/ActivityFeed";
 import ToastProvider from "./components/ToastProvider";
 
 export default function App() {
-  const { connected, messages, notifications, status, timers, positions, wallet, candidates, lpOverview, sendMessage, sendQuickAction, quickActionResult, clearQuickActionResult } = useWebSocket();
-  const [cmdOpen, setCmdOpen] = useState(false);
-  const [graphOpen, setGraphOpen] = useState(false);
+  const {
+    connected, notifications, status, timers,
+    positions, wallet, candidates, lpOverview,
+    sendMessage,
+  } = useWebSocket();
 
   useToastNotifications(notifications);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
-        e.preventDefault();
-        setCmdOpen(true);
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
-
-  const handleCommandExecute = useCallback((command: string) => {
-    sendMessage(command);
-  }, [sendMessage]);
-
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-transparent">
-      <StatusBar connected={connected} status={status} timers={timers} wallet={wallet} onOpenGraph={() => setGraphOpen(true)} />
+    <div className="flex h-screen flex-col overflow-hidden" style={{ background: "var(--color-page)" }}>
+      <TopBar
+        connected={connected}
+        status={status}
+        timers={timers}
+        wallet={wallet}
+        onCommand={sendMessage}
+      />
 
-      <div className="flex flex-1 flex-col overflow-hidden lg:flex-row" style={{ minHeight: 0 }}>
-        {/* Chat panel */}
-        <div className="flex flex-col overflow-hidden border-b border-white/8 bg-[linear-gradient(180deg,rgba(2,24,33,0.72),rgba(0,15,20,0.82))] lg:flex-[1.08] lg:border-b-0 lg:border-r" style={{ minHeight: 0, flex: "1.08 1 0%" }}>
-          <ChatPanel
-            messages={messages}
-            status={status}
-            timers={timers}
-            positions={positions}
-            candidates={candidates}
-            onSend={sendMessage}
-            onOpenCommandPalette={() => setCmdOpen(true)}
-          />
+      <div className="flex flex-1 gap-3.5 overflow-hidden px-4 pb-4">
+        {/* Left: Positions */}
+        <div className="flex flex-col" style={{ flex: "5 1 0%", minHeight: 0 }}>
+          <div className="mb-2.5">
+            <span className="text-[10px] font-semibold uppercase tracking-[1.5px]" style={{ color: "var(--color-text-dim)" }}>
+              Open Positions ({positions?.total_positions ?? 0})
+            </span>
+          </div>
+          <div className="flex-1 overflow-y-auto pr-1">
+            <PositionList positions={positions} />
+          </div>
         </div>
 
-        {/* Data Sidebar */}
-        <div className="flex flex-col overflow-y-auto bg-[linear-gradient(180deg,rgba(8,31,40,0.54),rgba(0,15,20,0.72))] lg:flex-[0.92]" style={{ minHeight: 0 }}>
-          <DataSidebar
-            positions={positions}
-            wallet={wallet}
-            candidates={candidates}
-            notifications={notifications}
-            status={status}
-            lpOverview={lpOverview}
-            onCommand={sendMessage}
-            sendQuickAction={sendQuickAction}
-            quickActionResult={quickActionResult}
-            clearQuickActionResult={clearQuickActionResult}
-          />
+        {/* Right: Stats + Activity */}
+        <div className="flex flex-col gap-2.5" style={{ flex: "3 1 0%", minHeight: 0 }}>
+          <PerformancePanel lpOverview={lpOverview} />
+          <div className="flex-1 overflow-hidden">
+            <ActivityFeed notifications={notifications} />
+          </div>
         </div>
       </div>
 
-      <CommandPalette open={cmdOpen} onOpenChange={setCmdOpen} onExecute={handleCommandExecute} />
-      <KnowledgeGraph open={graphOpen} onClose={() => setGraphOpen(false)} sendQuickAction={sendQuickAction} quickActionResult={quickActionResult} clearQuickActionResult={clearQuickActionResult} />
       <ToastProvider />
     </div>
   );
