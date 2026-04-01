@@ -957,7 +957,56 @@ Focus on: hold duration, entry/exit timing, what win rates look like, whether sc
     }
 
     if (text === "/start") {
-      await sendMessage("Meridian LP Agent connected. Tap Menu for commands, or just ask me anything.");
+      const mode = process.env.DRY_RUN === "true" ? "DRY RUN" : "LIVE";
+      await sendMessage(`Meridian LP Agent connected. Mode: ${mode}\nTap Menu for commands, or just ask me anything.`);
+      return;
+    }
+
+    if (text === "/golive") {
+      if (process.env.DRY_RUN !== "true") {
+        await sendMessage("Already live.");
+        return;
+      }
+      try {
+        process.env.DRY_RUN = "false";
+        const fs = await import("fs");
+        const envPath = "/docker/meridian/.env";
+        let env = fs.default.readFileSync(envPath, "utf8");
+        env = env.replace(/DRY_RUN=true/g, "DRY_RUN=false");
+        fs.default.writeFileSync(envPath, env);
+        const cfgPath = "/docker/meridian/user-config.json";
+        const cfg = JSON.parse(fs.default.readFileSync(cfgPath, "utf8"));
+        cfg.dryRun = false;
+        fs.default.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+        log("telegram", "Switched to LIVE mode via Telegram");
+        await sendMessage("LIVE MODE activated. Meridian will now execute real trades.");
+      } catch (e) {
+        await sendMessage(`Error switching to live: ${e.message}`).catch(() => {});
+      }
+      return;
+    }
+
+    if (text === "/godry") {
+      if (process.env.DRY_RUN === "true") {
+        await sendMessage("Already in dry run mode.");
+        return;
+      }
+      try {
+        process.env.DRY_RUN = "true";
+        const fs = await import("fs");
+        const envPath = "/docker/meridian/.env";
+        let env = fs.default.readFileSync(envPath, "utf8");
+        env = env.replace(/DRY_RUN=false/g, "DRY_RUN=true");
+        fs.default.writeFileSync(envPath, env);
+        const cfgPath = "/docker/meridian/user-config.json";
+        const cfg = JSON.parse(fs.default.readFileSync(cfgPath, "utf8"));
+        cfg.dryRun = true;
+        fs.default.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+        log("telegram", "Switched to DRY RUN mode via Telegram");
+        await sendMessage("DRY RUN mode activated. No real trades will execute.");
+      } catch (e) {
+        await sendMessage(`Error switching to dry: ${e.message}`).catch(() => {});
+      }
       return;
     }
 
