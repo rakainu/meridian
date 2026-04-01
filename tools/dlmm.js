@@ -1,5 +1,6 @@
 import {
   Connection,
+  ComputeBudgetProgram,
   Keypair,
   PublicKey,
   sendAndConfirmTransaction,
@@ -37,6 +38,48 @@ async function getDLMM() {
     _StrategyType = mod.StrategyType;
   }
   return { DLMM: _DLMM, StrategyType: _StrategyType };
+}
+
+// ─── Reliable send with fresh blockhash + priority fee ───────
+// Solana transactions expire when blockhash ages out during congestion.
+// This helper refreshes the blockhash and prepends a priority fee
+// instruction before sending, then retries up to 3 times.
+const PRIORITY_FEE_LAMPORTS = 50_000; // 0.00005 SOL priority fee
+
+async function sendReliable(connection, tx, signers, opts = {}) {
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    // Refresh blockhash right before sending
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+    tx.recentBlockhash = blockhash;
+    tx.lastValidBlockHeight = lastValidBlockHeight;
+
+    // Add priority fee if not already present
+    const hasPriorityFee = tx.instructions?.some(
+      ix => ix.programId?.equals(ComputeBudgetProgram.programId)
+    );
+    if (!hasPriorityFee) {
+      tx.instructions.unshift(
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_FEE_LAMPORTS })
+      );
+    }
+
+    try {
+      return await sendAndConfirmTransaction(connection, tx, signers, {
+        skipPreflight: true,
+        ...opts,
+      });
+    } catch (err) {
+      const msg = err.message || "";
+      if (msg.includes("block height exceeded") || msg.includes("expired")) {
+        if (attempt < maxAttempts) {
+          log("tx", `Blockhash expired (attempt ${attempt}/${maxAttempts}), retrying with fresh blockhash...`);
+          continue;
+        }
+      }
+      throw err;
+    }
+  }
 }
 
 // ─── Lazy wallet/connection init ──────────────────────────────
@@ -439,7 +482,7 @@ export async function deployPosition({
       const createTxArray = Array.isArray(createTxs) ? createTxs : [createTxs];
       for (let i = 0; i < createTxArray.length; i++) {
         const signers = i === 0 ? [wallet, newPosition] : [wallet];
-        const txHash = await sendAndConfirmTransaction(getConnection(), createTxArray[i], signers, { skipPreflight: true });
+        const txHash = await sendReliable(getConnection(), createTxArray[i], signers);
         txHashes.push(txHash);
         log("deploy", `Create tx ${i + 1}/${createTxArray.length}: ${txHash}`);
       }
@@ -481,7 +524,7 @@ export async function deployPosition({
         });
         const addTxArray = Array.isArray(addTxs) ? addTxs : [addTxs];
         for (let i = 0; i < addTxArray.length; i++) {
-          const txHash = await sendAndConfirmTransaction(getConnection(), addTxArray[i], [wallet], { skipPreflight: true });
+          const txHash = await sendReliable(getConnection(), addTxArray[i], [wallet]);
           txHashes.push(txHash);
           log("deploy", `Add liquidity tx ${i + 1}/${addTxArray.length}: ${txHash}`);
         }
@@ -507,7 +550,7 @@ export async function deployPosition({
         strategy: { maxBinId, minBinId, strategyType },
         slippage: 1000, // 10% in bps
       });
-      const txHash = await sendAndConfirmTransaction(getConnection(), tx, [wallet, newPosition], { skipPreflight: true });
+      const txHash = await sendReliable(getConnection(), tx, [wallet, newPosition]);
       txHashes.push(txHash);
     }
 
@@ -1174,7 +1217,7 @@ export async function claimFees({ position_address }) {
     const txArr = Array.isArray(txs) ? txs : [txs];
     const txHashes = [];
     for (const tx of txArr) {
-      const txHash = await sendAndConfirmTransaction(getConnection(), tx, [wallet], { skipPreflight: true });
+      const txHash = await sendReliable(getConnection(), tx, [wallet]);
       txHashes.push(txHash);
     }
     const txHash = txHashes[0];
@@ -1255,7 +1298,7 @@ export async function closePosition({ position_address, _pnlOverride = null }) {
         position: positionData,
       });
       for (const tx of Array.isArray(claimTxs) ? claimTxs : [claimTxs]) {
-        const claimHash = await sendAndConfirmTransaction(getConnection(), tx, [wallet], { skipPreflight: true });
+        const claimHash = await sendReliable(getConnection(), tx, [wallet]);
         txHashes.push(claimHash);
       }
       log("close", `Step 1 OK: ${txHashes.join(", ")}`);
@@ -1276,7 +1319,7 @@ export async function closePosition({ position_address, _pnlOverride = null }) {
       });
 
       for (const tx of Array.isArray(closeTx) ? closeTx : [closeTx]) {
-        const txHash = await sendAndConfirmTransaction(getConnection(), tx, [wallet], { skipPreflight: true });
+        const txHash = await sendReliable(getConnection(), tx, [wallet]);
         txHashes.push(txHash);
       }
     } catch (removeErr) {
@@ -1292,7 +1335,7 @@ export async function closePosition({ position_address, _pnlOverride = null }) {
         owner: wallet.publicKey,
         position: positionData,
       });
-      const txHash = await sendAndConfirmTransaction(getConnection(), closeTx, [wallet], { skipPreflight: true });
+      const txHash = await sendReliable(getConnection(), closeTx, [wallet]);
       txHashes.push(txHash);
     }
     log("close", `SUCCESS txs: ${txHashes.join(", ")}`);
