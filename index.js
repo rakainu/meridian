@@ -35,7 +35,7 @@ import { getRangeSelectionText } from "./prompt.js";
 
 log("startup", "DLMM LP Agent starting...");
 log("startup", `Mode: ${process.env.DRY_RUN === "true" ? "DRY RUN" : "LIVE"}`);
-log("startup", `Model: ${config.llm.managementModel} (provider: ${process.env.LLM_PROVIDER || "openrouter"})`);
+log("startup", `Model: ${config.llm.managementModel} (provider: deepseek)`);
 
 // Initialize holographic memory at startup
 initMemory();
