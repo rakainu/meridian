@@ -956,6 +956,11 @@ Focus on: hold duration, entry/exit timing, what win rates look like, whether sc
       return;
     }
 
+    if (text === "/start") {
+      await sendMessage("Meridian LP Agent connected. Tap Menu for commands, or just ask me anything.");
+      return;
+    }
+
     if (text === "/briefing") {
       try {
         const briefing = await generateBriefing();
@@ -966,6 +971,84 @@ Focus on: hold duration, entry/exit timing, what win rates look like, whether sc
       return;
     }
 
+    if (text === "/status") {
+      setBusy(true);
+      try {
+        const [wallet, positions] = await Promise.all([getWalletBalances(), getMyPositions()]);
+        const unit = config.management.pnlUnit || "sol";
+        let msg = `Wallet: ${wallet.sol} SOL ($${wallet.sol_usd})\nPositions: ${positions.total_positions}`;
+        for (const p of positions.positions) {
+          const status = p.in_range ? "in-range" : "OOR";
+          const fees = unit === "sol" ? `${p.unclaimed_fees_sol ?? "?"} SOL` : `$${p.unclaimed_fees_usd}`;
+          const pnl = unit === "sol" ? `${p.pnl_sol ?? "?"} SOL` : `$${p.pnl_usd}`;
+          msg += `\n  ${p.pair} ${status} | fees: ${fees} | pnl: ${pnl} (${p.pnl_pct}%)`;
+        }
+        await sendMessage(msg);
+      } catch (e) {
+        await sendMessage(`Error: ${e.message}`).catch(() => {});
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    if (text === "/candidates") {
+      setBusy(true);
+      try {
+        const result = await getTopCandidates();
+        if (!result?.candidates?.length) {
+          await sendMessage("No eligible candidates right now.");
+        } else {
+          const lines = result.candidates.map((c, i) =>
+            `${i + 1}. ${c.name} | fee/tvl: ${c.fee_tvl?.toFixed(2)} | vol: $${Math.round(c.volume)} | tvl: $${Math.round(c.tvl)}`
+          );
+          await sendMessage(`Top candidates:\n${lines.join("\n")}`);
+        }
+      } catch (e) {
+        await sendMessage(`Error: ${e.message}`).catch(() => {});
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    if (text === "/thresholds") {
+      const summary = getScreeningThresholdSummary();
+      await sendMessage(summary);
+      return;
+    }
+
+    if (text === "/evolve") {
+      setBusy(true);
+      try {
+        const result = evolveThresholds();
+        await sendMessage(result || "No evolution needed — not enough data yet.");
+      } catch (e) {
+        await sendMessage(`Error: ${e.message}`).catch(() => {});
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    if (text === "/learn" || text.startsWith("/learn ")) {
+      setBusy(true);
+      try {
+        const addr = text.replace("/learn", "").trim();
+        const goal = addr
+          ? `Study top LPers on pool ${addr}. Call study_top_lpers then add_lesson with findings.`
+          : `Find the best current pool from get_top_candidates, then study_top_lpers on it and add_lesson with findings.`;
+        const { content } = await lightChat(goal, sessionHistory, config.llm.generalModel);
+        await sendMessage(content);
+      } catch (e) {
+        await sendMessage(`Error: ${e.message}`).catch(() => {});
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    // Freeform chat — send to LLM
     setBusy(true);
     try {
       log("telegram", `Incoming: ${text}`);
