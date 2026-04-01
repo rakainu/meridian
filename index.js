@@ -957,56 +957,70 @@ Focus on: hold duration, entry/exit timing, what win rates look like, whether sc
     }
 
     if (text === "/start") {
-      const mode = process.env.DRY_RUN === "true" ? "DRY RUN" : "LIVE";
+      const mode = cronStarted
+        ? (process.env.DRY_RUN === "true" ? "DRY RUN" : "LIVE")
+        : "PAUSED";
       await sendMessage(`Meridian LP Agent connected. Mode: ${mode}\nTap Menu for commands, or just ask me anything.`);
       return;
     }
 
     if (text === "/golive") {
-      if (process.env.DRY_RUN !== "true") {
-        await sendMessage("Already live.");
-        return;
-      }
       try {
-        process.env.DRY_RUN = "false";
         const fs = await import("fs");
+        process.env.DRY_RUN = "false";
         const envPath = "/docker/meridian/.env";
         let env = fs.default.readFileSync(envPath, "utf8");
-        env = env.replace(/DRY_RUN=true/g, "DRY_RUN=false");
+        env = env.replace(/DRY_RUN=\w+/g, "DRY_RUN=false");
         fs.default.writeFileSync(envPath, env);
         const cfgPath = "/docker/meridian/user-config.json";
         const cfg = JSON.parse(fs.default.readFileSync(cfgPath, "utf8"));
         cfg.dryRun = false;
         fs.default.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+        if (!cronStarted) {
+          cronStarted = true;
+          startCronJobs();
+        }
         log("telegram", "Switched to LIVE mode via Telegram");
-        await sendMessage("LIVE MODE activated. Meridian will now execute real trades.");
+        await sendMessage("LIVE MODE activated. Cycles running. Meridian will execute real trades.");
       } catch (e) {
-        await sendMessage(`Error switching to live: ${e.message}`).catch(() => {});
+        await sendMessage(`Error: ${e.message}`).catch(() => {});
       }
       return;
     }
 
     if (text === "/godry") {
-      if (process.env.DRY_RUN === "true") {
-        await sendMessage("Already in dry run mode.");
-        return;
-      }
       try {
-        process.env.DRY_RUN = "true";
         const fs = await import("fs");
+        process.env.DRY_RUN = "true";
         const envPath = "/docker/meridian/.env";
         let env = fs.default.readFileSync(envPath, "utf8");
-        env = env.replace(/DRY_RUN=false/g, "DRY_RUN=true");
+        env = env.replace(/DRY_RUN=\w+/g, "DRY_RUN=true");
         fs.default.writeFileSync(envPath, env);
         const cfgPath = "/docker/meridian/user-config.json";
         const cfg = JSON.parse(fs.default.readFileSync(cfgPath, "utf8"));
         cfg.dryRun = true;
         fs.default.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+        if (!cronStarted) {
+          cronStarted = true;
+          startCronJobs();
+        }
         log("telegram", "Switched to DRY RUN mode via Telegram");
-        await sendMessage("DRY RUN mode activated. No real trades will execute.");
+        await sendMessage("DRY RUN mode activated. Cycles running but no real trades.");
       } catch (e) {
-        await sendMessage(`Error switching to dry: ${e.message}`).catch(() => {});
+        await sendMessage(`Error: ${e.message}`).catch(() => {});
       }
+      return;
+    }
+
+    if (text === "/pause") {
+      if (!cronStarted) {
+        await sendMessage("Already paused.");
+        return;
+      }
+      stopCronJobs();
+      cronStarted = false;
+      log("telegram", "PAUSED — all cycles stopped via Telegram");
+      await sendMessage("PAUSED. All screening, management, and PnL cycles stopped.\nUse /golive or /godry to resume.");
       return;
     }
 
