@@ -12,18 +12,12 @@ import { getMemoryContext } from "./memory.js";
 import { getWeightsSummary } from "./signal-weights.js";
 import { getLpOverviewSummary } from "./tools/lp-overview.js";
 
-// Configurable LLM provider: "openrouter" (default) or "deepseek"
-const provider = process.env.LLM_PROVIDER || "openrouter";
 const client = new OpenAI({
-  baseURL: provider === "deepseek"
-    ? "https://api.deepseek.com"
-    : "https://openrouter.ai/api/v1",
-  apiKey: provider === "deepseek"
-    ? process.env.DEEPSEEK_API_KEY
-    : process.env.OPENROUTER_API_KEY,
+  baseURL: "https://api.deepseek.com",
+  apiKey: process.env.DEEPSEEK_API_KEY,
 });
 
-const DEFAULT_MODEL = process.env.LLM_MODEL || "openai/gpt-5.4-nano";
+const DEFAULT_MODEL = process.env.LLM_MODEL || "deepseek-chat";
 
 export function getScreenerModelLabel() {
   return config.llm.screeningModel;
