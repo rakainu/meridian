@@ -948,6 +948,36 @@ Focus on: hold duration, entry/exit timing, what win rates look like, whether sc
   log("startup", "Non-TTY mode — starting cron cycles immediately.");
   launchCron();
   maybeRunMissedBriefing().catch(() => {});
+
+  // Telegram bot polling (works headless — no REPL needed)
+  startPolling(async (text) => {
+    if (isManagementBusy() || isScreeningBusy() || isBusy()) {
+      sendMessage("Agent is busy right now — try again in a moment.").catch(() => {});
+      return;
+    }
+
+    if (text === "/briefing") {
+      try {
+        const briefing = await generateBriefing();
+        emit("briefing", { html: briefing });
+      } catch (e) {
+        await sendMessage(`Error: ${e.message}`).catch(() => {});
+      }
+      return;
+    }
+
+    setBusy(true);
+    try {
+      log("telegram", `Incoming: ${text}`);
+      const { content } = await lightChat(text, sessionHistory, config.llm.generalModel);
+      appendHistory(text, content);
+      await sendMessage(content);
+    } catch (e) {
+      await sendMessage(`Error: ${e.message}`).catch(() => {});
+    } finally {
+      setBusy(false);
+    }
+  });
   if (runtimeMode.runStartupCheck) (async () => {
     try {
       const currentBalance = await getWalletBalances().catch(() => null);
