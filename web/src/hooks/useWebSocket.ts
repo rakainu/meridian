@@ -37,6 +37,8 @@ export interface PositionInfo {
   pnl_pct: number;
   pnl_sol?: number;
   pnl_usd?: number;
+  total_value_sol?: number;
+  total_value_usd?: number;
   unclaimed_fees_sol?: number;
   unclaimed_fees_usd?: number;
   age_minutes?: number;

@@ -66,7 +66,7 @@ function PositionCard({ p }: { p: PositionInfo }) {
       <div className="mb-2.5 flex gap-6">
         <Stat label="PnL" value={`${pnlSign}${p.pnl_pct.toFixed(2)}%`} color={pnlColor} large />
         <Stat label="Fees" value={`${(p.unclaimed_fees_sol ?? 0).toFixed(4)} SOL`} />
-        <Stat label="Deployed" value={p.pnl_sol != null ? `${Math.abs(p.pnl_sol).toFixed(2)} SOL` : "--"} />
+        <Stat label="Value" value={p.total_value_sol != null ? `${p.total_value_sol.toFixed(3)} SOL` : "--"} />
         <Stat label="Age" value={formatAge(p.age_minutes)} dim />
       </div>
 
