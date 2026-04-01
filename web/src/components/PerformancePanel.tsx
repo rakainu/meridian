@@ -1,14 +1,38 @@
-import { useState } from "react";
-import type { LpOverviewData } from "../hooks/useWebSocket";
+import { useState, useEffect } from "react";
 
-export default function PerformancePanel({ lpOverview }: { lpOverview: LpOverviewData | null }) {
+interface PerfData {
+  period: string;
+  trades: number;
+  pnl_usd: number;
+  pnl_sol: number;
+  fees_usd: number;
+  fees_sol: number;
+  win_rate_pct: number;
+}
+
+export default function PerformancePanel() {
   const [period, setPeriod] = useState<"daily" | "weekly">("daily");
+  const [data, setData] = useState<PerfData | null>(null);
 
-  const o = lpOverview;
-  const pnl = o ? (o.pnl_unit === "sol" ? o.total_pnl_sol : o.total_pnl_usd) : 0;
-  const fees = o ? (o.pnl_unit === "sol" ? o.total_fees_sol : o.total_fees_usd) : 0;
-  const winRate = o ? (o.pnl_unit === "sol" ? o.win_rate_sol_pct : o.win_rate_usd_pct) : 0;
-  const unit = o?.pnl_unit === "sol" ? "SOL" : "USD";
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchPerf() {
+      try {
+        const res = await fetch(`/api/performance?period=${period}`);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled) setData(json);
+      } catch { /* ignore */ }
+    }
+    fetchPerf();
+    const interval = setInterval(fetchPerf, 30_000); // refresh every 30s
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [period]);
+
+  const pnl = data?.pnl_sol ?? 0;
+  const fees = data?.fees_sol ?? 0;
+  const winRate = data?.win_rate_pct ?? 0;
+  const trades = data?.trades ?? 0;
   const pnlSign = pnl >= 0 ? "+" : "";
 
   return (
@@ -44,15 +68,10 @@ export default function PerformancePanel({ lpOverview }: { lpOverview: LpOvervie
 
       {/* Stat grid */}
       <div className="grid grid-cols-2 gap-2">
-        <StatCell label="PnL" value={`${pnlSign}${pnl.toFixed(3)} ${unit}`} positive={pnl >= 0} />
-        <StatCell label="Fees" value={`${fees.toFixed(3)} ${unit}`} />
-        <StatCell label="Win Rate" value={`${winRate.toFixed(0)}%`} positive={winRate >= 50} />
-        <StatCell label="Trades" value={String(o?.closed_positions ?? 0)} />
-      </div>
-
-      {/* Lifetime summary */}
-      <div className="mt-2.5 pt-2 text-[11px]" style={{ borderTop: "1px solid rgba(99,220,190,0.06)", color: "var(--color-text-faint)" }}>
-        Lifetime: {o?.closed_positions ?? 0} closed · {(o?.total_fees_sol ?? 0).toFixed(1)} SOL fees · {(o?.win_rate_sol_pct ?? 0).toFixed(0)}% win · avg {(o?.avg_hold_hours ?? 0).toFixed(1)}h hold
+        <StatCell label="PnL" value={`${pnlSign}${pnl.toFixed(4)} SOL`} positive={pnl >= 0} />
+        <StatCell label="Fees" value={`${fees.toFixed(4)} SOL`} />
+        <StatCell label="Win Rate" value={trades > 0 ? `${winRate}%` : "--"} positive={winRate >= 50} />
+        <StatCell label="Trades" value={String(trades)} />
       </div>
     </div>
   );

@@ -160,6 +160,7 @@ export function useWebSocket() {
             if (msg.wallet) setWallet(msg.wallet);
             if (isCandidateData(msg.candidates)) setCandidates(msg.candidates);
             if (msg.lpOverview) setLpOverview(msg.lpOverview);
+            if (msg.notifications?.length) setNotifications(msg.notifications);
             break;
           case "chat:response":
             setMessages((prev) => [...prev, { role: "assistant", content: msg.text, ts: msg.ts }]);

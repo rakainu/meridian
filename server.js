@@ -28,6 +28,14 @@ import { generateBriefing } from "./briefing.js";
 
 // Cached startup data — avoids duplicate Helius calls when WebSocket connects
 let _startupCache = { wallet: null, positions: null, candidates: null, lpOverview: null, ts: 0 };
+
+// Notification cache — persists across WebSocket reconnects so Activity feed isn't empty
+const _notificationCache = [];
+const MAX_CACHED_NOTIFICATIONS = 50;
+function cacheNotification(event, data) {
+  _notificationCache.unshift({ id: `${Date.now()}-${Math.random().toString(36).slice(2,8)}`, event, data, ts: new Date().toISOString() });
+  if (_notificationCache.length > MAX_CACHED_NOTIFICATIONS) _notificationCache.length = MAX_CACHED_NOTIFICATIONS;
+}
 export function setStartupCache({ wallet, positions, candidates, lpOverview }) {
   _startupCache = { wallet, positions, candidates, lpOverview, ts: Date.now() };
 }
@@ -110,6 +118,32 @@ export function startServer(timersFn) {
     res.json(getHistory());
   });
 
+  app.get("/api/performance", (_req, res) => {
+    try {
+      const period = _req.query.period || "daily";
+      const hours = period === "weekly" ? 168 : 24;
+      const history = getPerformanceHistory({ hours, limit: 200 });
+      const solPrice = _startupCache.wallet?.sol_price || 0;
+      const positions = history.positions || [];
+      const totalPnlUsd = positions.reduce((s, r) => s + (r.pnl_usd ?? 0), 0);
+      const totalFeesUsd = positions.reduce((s, r) => s + (r.fees_earned_usd ?? 0), 0);
+      const wins = positions.filter((r) => (r.pnl_usd ?? 0) > 0).length;
+      res.json({
+        period,
+        trades: positions.length,
+        pnl_usd: Math.round(totalPnlUsd * 100) / 100,
+        pnl_sol: solPrice > 0 ? Math.round((totalPnlUsd / solPrice) * 10000) / 10000 : 0,
+        fees_usd: Math.round(totalFeesUsd * 100) / 100,
+        fees_sol: solPrice > 0 ? Math.round((totalFeesUsd / solPrice) * 10000) / 10000 : 0,
+        win_rate_pct: positions.length > 0 ? Math.round((wins / positions.length) * 100) : 0,
+        positions,
+      });
+    } catch (err) {
+      log("server_error", `GET /api/performance failed: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/candidates", async (_req, res) => {
     try {
       const result = await getTopCandidates({ limit: 5 });
@@ -143,12 +177,14 @@ export function startServer(timersFn) {
 
   for (const eventName of FORWARDED_EVENTS) {
     on(eventName, (data) => {
+      cacheNotification(eventName, data);
       broadcast(wss, { type: "notification", event: eventName, data });
     });
   }
 
   // Post-cycle data broadcasts — send notification + fresh structured data
   on("cycle:management", async (data) => {
+    cacheNotification("cycle:management", data);
     broadcast(wss, { type: "notification", event: "cycle:management", data });
     const [pos, wal] = await Promise.allSettled([getMyPositions(), getWalletBalances()]);
     if (pos.status === "fulfilled") broadcast(wss, { type: "positions", data: pos.value });
@@ -156,6 +192,7 @@ export function startServer(timersFn) {
   });
 
   on("cycle:screening", async (data) => {
+    cacheNotification("cycle:screening", data);
     broadcast(wss, { type: "notification", event: "cycle:screening", data });
     const cands = await getTopCandidates({ limit: 5 }).catch(() => null);
     if (cands) broadcast(wss, { type: "candidates", data: normalizeCandidatesPayload(cands) });
@@ -241,6 +278,7 @@ export function startServer(timersFn) {
       wallet: wallet.status === "fulfilled" ? wallet.value : null,
       candidates: candidateResult.status === "fulfilled" ? normalizeCandidatesPayload(candidateResult.value) : null,
       lpOverview: lpOverviewResult.status === "fulfilled" ? lpOverviewResult.value : null,
+      notifications: _notificationCache,
     });
 
     // ── Incoming messages ──

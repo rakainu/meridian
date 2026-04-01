@@ -9,7 +9,7 @@ import ToastProvider from "./components/ToastProvider";
 export default function App() {
   const {
     connected, notifications, status, timers,
-    positions, wallet, lpOverview,
+    positions, wallet,
     sendMessage,
   } = useWebSocket();
 
@@ -45,7 +45,7 @@ export default function App() {
               &nbsp;
             </span>
           </div>
-          <PerformancePanel lpOverview={lpOverview} />
+          <PerformancePanel />
           <div className="flex-1 overflow-hidden">
             <ActivityFeed notifications={notifications} />
           </div>
