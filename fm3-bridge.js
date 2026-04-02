@@ -1,59 +1,66 @@
-// fm3-bridge.js — Reads FM3 state/dashboard files and transforms data
-// into Meridian's API formats so both strategies appear on the same dashboard.
+// fm3-bridge.js — Reads FM3 + FM3-meme state/dashboard files and transforms
+// data into Meridian's API formats so all strategies appear on the same dashboard.
 
 import fs from "fs";
 import path from "path";
 import { log } from "./logger.js";
 
-// FM3 writes its files here on the VPS
 const FM3_DATA_DIR = process.env.FM3_DATA_DIR || "/root/LP-Project/DATA";
-const FM3_DASHBOARD_FILE = path.join(FM3_DATA_DIR, "fm3-dashboard.json");
-const FM3_STATE_FILE = path.join(FM3_DATA_DIR, "fm3-state.json");
 
-// Cache to avoid re-reading every request; FM3 writes every ~60s
-let _dashboardCache = { data: null, mtime: 0 };
-let _stateCache = { data: null, mtime: 0 };
+// ─── Instance definitions ───
 
-function readJsonCached(filePath, cache) {
+const INSTANCES = {
+  fm3: {
+    label: "FM3",
+    dashboardFile: path.join(FM3_DATA_DIR, "fm3-dashboard.json"),
+    stateFile: path.join(FM3_DATA_DIR, "fm3-state.json"),
+    configFile: path.join(FM3_DATA_DIR, "fee-machine-v3-config.json"),
+  },
+  "fm3-meme": {
+    label: "FM3-Meme",
+    dashboardFile: path.join(FM3_DATA_DIR, "fm3-meme-dashboard.json"),
+    stateFile: path.join(FM3_DATA_DIR, "fm3-meme-state.json"),
+    configFile: path.join(FM3_DATA_DIR, "fm3-meme-config.json"),
+  },
+};
+
+// ─── Caching ───
+
+const _caches = {};
+
+function readJsonCached(filePath) {
+  if (!_caches[filePath]) _caches[filePath] = { data: null, mtime: 0 };
+  const cache = _caches[filePath];
   try {
     if (!fs.existsSync(filePath)) return null;
     const stat = fs.statSync(filePath);
-    const mtime = stat.mtimeMs;
-    if (cache.data && cache.mtime === mtime) return cache.data;
-    const raw = fs.readFileSync(filePath, "utf-8");
-    cache.data = JSON.parse(raw);
-    cache.mtime = mtime;
+    if (cache.data && cache.mtime === stat.mtimeMs) return cache.data;
+    cache.data = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    cache.mtime = stat.mtimeMs;
     return cache.data;
   } catch (err) {
     log("fm3_bridge", `Error reading ${filePath}: ${err.message}`);
-    return cache.data; // return stale data if available
+    return cache.data;
   }
 }
 
-/** Read the FM3 dashboard JSON (written every loop by FM3). */
-export function getFM3Dashboard() {
-  return readJsonCached(FM3_DASHBOARD_FILE, _dashboardCache);
+function getDashboard(instanceKey) {
+  return readJsonCached(INSTANCES[instanceKey].dashboardFile);
 }
 
-/** Read the FM3 state JSON (full state machine). */
-export function getFM3State() {
-  return readJsonCached(FM3_STATE_FILE, _stateCache);
-}
+// ─── Positions (for dashboard page) ───
 
-/**
- * Convert FM3 active positions into Meridian's PositionInfo format
- * so they appear alongside Marv's positions on the dashboard.
- */
-export function getFM3Positions() {
-  const dash = getFM3Dashboard();
+function getInstancePositions(instanceKey) {
+  const inst = INSTANCES[instanceKey];
+  const dash = getDashboard(instanceKey);
   if (!dash || !dash.active_positions) return [];
 
   return dash.active_positions.map((p) => ({
     position: p.id,
     pair: p.pool_name || "?",
     pool: p.pool,
-    strategy: "FM3",
-    in_range: true, // FM3 rebalances to stay in range
+    strategy: inst.label,
+    in_range: true,
     active_bin: 0,
     lower_bin: 0,
     upper_bin: 0,
@@ -65,7 +72,6 @@ export function getFM3Positions() {
     unclaimed_fees_sol: p.fee_estimate_sol ?? 0,
     unclaimed_fees_usd: null,
     age_minutes: p.hold_hours != null ? Math.round(p.hold_hours * 60) : null,
-    // FM3-specific extras (UI can use or ignore)
     _fm3: {
       bin_step: p.bin_step,
       bins: p.bins,
@@ -76,12 +82,19 @@ export function getFM3Positions() {
   }));
 }
 
-/**
- * Convert FM3 recent trades into Meridian's performance/journal format.
- * FM3 tracks in SOL, so we need solPrice to convert to USD.
- */
-export function getFM3ClosedTrades(solPrice = 0) {
-  const dash = getFM3Dashboard();
+/** All FM3 + FM3-meme active positions merged. */
+export function getFM3Positions() {
+  return [
+    ...getInstancePositions("fm3"),
+    ...getInstancePositions("fm3-meme"),
+  ];
+}
+
+// ─── Closed trades (for journal + performance) ───
+
+function getInstanceClosedTrades(instanceKey, solPrice) {
+  const inst = INSTANCES[instanceKey];
+  const dash = getDashboard(instanceKey);
   if (!dash || !dash.recent_trades) return [];
 
   return dash.recent_trades.map((t) => {
@@ -92,10 +105,10 @@ export function getFM3ClosedTrades(solPrice = 0) {
     const finalUsd = initialUsd + pnlUsd;
 
     return {
-      position: `fm3-${t.pool_name}-${t.time}`,
+      position: `${instanceKey}-${t.pool_name}-${t.time}`,
       pool_name: t.pool_name || "?",
       pool: null,
-      strategy: "FM3",
+      strategy: inst.label,
       pnl_usd: Math.round(pnlUsd * 100) / 100,
       pnl_pct: t.pnl_pct ?? 0,
       fees_earned_usd: Math.round(feesUsd * 100) / 100,
@@ -106,7 +119,6 @@ export function getFM3ClosedTrades(solPrice = 0) {
       close_reason: t.exit_reason || "unknown",
       deployed_at: null,
       closed_at: t.time || null,
-      // Extra fields for journal enrichment
       peak_pnl_pct: t.pnl_pct ?? 0,
       peak_vs_exit_gap: 0,
       hold_time_hours: t.hold_hours ?? null,
@@ -115,34 +127,42 @@ export function getFM3ClosedTrades(solPrice = 0) {
   });
 }
 
-/**
- * Get FM3 session summary for performance endpoint.
- */
-export function getFM3SessionSummary() {
-  const dash = getFM3Dashboard();
-  if (!dash || !dash.session) return null;
-  return {
-    strategy: "FM3",
-    status: dash.status,
-    ...dash.session,
-  };
+/** All FM3 + FM3-meme closed trades merged. */
+export function getFM3ClosedTrades(solPrice = 0) {
+  return [
+    ...getInstanceClosedTrades("fm3", solPrice),
+    ...getInstanceClosedTrades("fm3-meme", solPrice),
+  ];
 }
 
-// ─── FM3 Start / Stop / Status controls ───
+// ─── Session summary ───
 
-const FM3_CONFIG_FILE = path.join(FM3_DATA_DIR, "fee-machine-v3-config.json");
+export function getFM3SessionSummary() {
+  const results = [];
+  for (const [key, inst] of Object.entries(INSTANCES)) {
+    const dash = getDashboard(key);
+    if (dash?.session) {
+      results.push({ strategy: inst.label, status: dash.status, ...dash.session });
+    }
+  }
+  return results;
+}
 
-/** Get FM3 running status by reading its config + dashboard freshness. */
-export function getFM3Status() {
-  const dash = getFM3Dashboard();
+// ─── Start / Stop / Status controls ───
+
+function getInstanceStatus(instanceKey) {
+  const inst = INSTANCES[instanceKey];
+  const dash = getDashboard(instanceKey);
   try {
-    const cfg = fs.existsSync(FM3_CONFIG_FILE)
-      ? JSON.parse(fs.readFileSync(FM3_CONFIG_FILE, "utf-8"))
+    const cfg = fs.existsSync(inst.configFile)
+      ? JSON.parse(fs.readFileSync(inst.configFile, "utf-8"))
       : null;
     const enabled = cfg?.enabled ?? false;
     const updatedAt = dash?.updated_at || null;
     const stale = updatedAt ? (Date.now() - new Date(updatedAt).getTime()) > 120000 : true;
     return {
+      name: instanceKey,
+      label: inst.label,
       enabled,
       status: dash?.status || (enabled ? "STARTING" : "STOPPED"),
       stale,
@@ -151,35 +171,50 @@ export function getFM3Status() {
       active_positions: dash?.active_positions?.length ?? 0,
     };
   } catch (err) {
-    return { enabled: false, status: "ERROR", error: err.message };
+    return { name: instanceKey, label: inst.label, enabled: false, status: "ERROR", error: err.message };
   }
 }
 
-/** Toggle FM3 enabled flag in its config file. */
-export function setFM3Enabled(enabled) {
+function setInstanceEnabled(instanceKey, enabled) {
+  const inst = INSTANCES[instanceKey];
+  if (!inst) return { ok: false, error: `Unknown instance: ${instanceKey}` };
   try {
-    if (!fs.existsSync(FM3_CONFIG_FILE)) {
-      return { ok: false, error: "FM3 config not found" };
+    if (!fs.existsSync(inst.configFile)) {
+      return { ok: false, error: `Config not found: ${inst.configFile}` };
     }
-    const cfg = JSON.parse(fs.readFileSync(FM3_CONFIG_FILE, "utf-8"));
+    const cfg = JSON.parse(fs.readFileSync(inst.configFile, "utf-8"));
     cfg.enabled = !!enabled;
-    const tmp = FM3_CONFIG_FILE + ".tmp";
+    const tmp = inst.configFile + ".tmp";
     fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2));
-    fs.renameSync(tmp, FM3_CONFIG_FILE);
-    log("fm3_bridge", `FM3 ${enabled ? "enabled" : "disabled"} via config`);
+    fs.renameSync(tmp, inst.configFile);
+    log("fm3_bridge", `${inst.label} ${enabled ? "enabled" : "disabled"} via config`);
     return { ok: true, enabled: cfg.enabled };
   } catch (err) {
-    log("fm3_bridge", `Failed to toggle FM3: ${err.message}`);
+    log("fm3_bridge", `Failed to toggle ${inst.label}: ${err.message}`);
     return { ok: false, error: err.message };
   }
 }
 
-/** Map FM3 exit reasons to Meridian's exit categories. */
+/** Combined status for all instances. */
+export function getFM3Status() {
+  return {
+    fm3: getInstanceStatus("fm3"),
+    "fm3-meme": getInstanceStatus("fm3-meme"),
+  };
+}
+
+/** Enable/disable a specific instance. */
+export function setFM3Enabled(enabled, instance = "fm3") {
+  return setInstanceEnabled(instance, enabled);
+}
+
+// ─── Exit reason mapping ───
+
 function categorizeFM3ExitReason(reason) {
   if (!reason) return "UNKNOWN";
   const r = reason.toLowerCase();
   if (r.includes("stop_loss")) return "STOP_LOSS";
-  if (r.includes("extreme_drift")) return "STOP_LOSS"; // drift exit ~= stop loss
+  if (r.includes("extreme_drift")) return "STOP_LOSS";
   if (r.includes("max_hold")) return "OOR_TIMEOUT";
   if (r.includes("volume_death")) return "YIELD_DEAD";
   if (r.includes("fee_stagnation")) return "YIELD_DEAD";

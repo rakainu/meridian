@@ -267,12 +267,14 @@ export function startServer(timersFn) {
   });
 
   app.post("/api/fm3/start", (_req, res) => {
-    const result = setFM3Enabled(true);
+    const instance = _req.body?.instance || "fm3";
+    const result = setFM3Enabled(true, instance);
     res.json(result);
   });
 
   app.post("/api/fm3/stop", (_req, res) => {
-    const result = setFM3Enabled(false);
+    const instance = _req.body?.instance || "fm3";
+    const result = setFM3Enabled(false, instance);
     res.json(result);
   });
 
