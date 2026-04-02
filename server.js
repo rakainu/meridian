@@ -179,10 +179,15 @@ export function startServer(timersFn) {
       // Enrich each closed position with peak PnL and analytics
       const trades = positions.map(p => {
         const tracked = trackedMap[p.position] || {};
-        const peakPnlPct = tracked.peak_pnl_pct ?? p.pnl_pct ?? 0;
-        const exitPnlPct = p.pnl_pct ?? 0;
+        // Recompute pnl_pct from USD values when it was recorded as 0 (pre-existing bug)
+        let exitPnlPct = p.pnl_pct ?? 0;
+        if (exitPnlPct === 0 && p.pnl_usd && p.initial_value_usd && p.initial_value_usd > 0) {
+          exitPnlPct = Math.round((p.pnl_usd / p.initial_value_usd) * 10000) / 100;
+        }
+        const peakPnlPct = tracked.peak_pnl_pct ?? exitPnlPct;
         return {
           ...p,
+          pnl_pct: exitPnlPct,
           peak_pnl_pct: Math.round(peakPnlPct * 100) / 100,
           peak_vs_exit_gap: Math.round((peakPnlPct - exitPnlPct) * 100) / 100,
           hold_time_hours: p.minutes_held ? Math.round(p.minutes_held / 6) / 10 : null,
@@ -202,7 +207,7 @@ export function startServer(timersFn) {
         ? Math.round(trades.reduce((s, t) => s + t.peak_vs_exit_gap, 0) / trades.length * 100) / 100
         : 0;
 
-      const wins = trades.filter(t => (t.pnl_pct ?? 0) > 0).length;
+      const wins = trades.filter(t => (t.pnl_usd ?? t.pnl_pct ?? 0) > 0).length;
 
       res.json({
         trades,
