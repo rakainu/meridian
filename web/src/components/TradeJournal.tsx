@@ -53,8 +53,8 @@ export default function TradeJournal() {
 
   if (!data) {
     return (
-      <div className="rounded-xl p-4" style={{ background: "var(--color-card)", border: "1px solid var(--color-border)" }}>
-        <span style={{ color: "var(--color-text-dim)" }}>Loading trade journal...</span>
+      <div className="rounded-xl p-5" style={{ background: "var(--color-card)", border: "1px solid var(--color-border)" }}>
+        <span className="text-sm" style={{ color: "var(--color-text-dim)" }}>Loading trade journal...</span>
       </div>
     );
   }
@@ -83,35 +83,29 @@ export default function TradeJournal() {
   const arrow = (key: SortKey) => sortKey === key ? (sortAsc ? " ▲" : " ▼") : "";
 
   return (
-    <div className="rounded-xl p-3.5" style={{ background: "var(--color-card)", border: "1px solid var(--color-border)" }}>
-      <div className="mb-3">
-        <span className="text-xs font-semibold uppercase tracking-[1.5px]" style={{ color: "var(--color-text-dim)" }}>
-          Trade Journal ({data.summary.total} trades)
-        </span>
-      </div>
-
+    <div className="rounded-xl p-4" style={{ background: "var(--color-card)", border: "1px solid var(--color-border)" }}>
       <div className="overflow-x-auto">
-        <table className="w-full text-[12px]" style={{ color: "var(--color-text)" }}>
+        <table className="w-full text-sm" style={{ color: "var(--color-text)" }}>
           <thead>
-            <tr style={{ color: "var(--color-text-dim)", borderBottom: "1px solid var(--color-border)" }}>
-              <th className="pb-2 text-left font-medium">Pair</th>
-              <th className="cursor-pointer pb-2 text-right font-medium" onClick={() => handleSort("closed_at")}>
-                Exit{arrow("closed_at")}
+            <tr style={{ color: "var(--color-text-dim)", borderBottom: "2px solid var(--color-border-accent)" }}>
+              <th className="pb-3 text-left text-sm font-semibold">Pair</th>
+              <th className="cursor-pointer pb-3 text-right text-sm font-semibold" onClick={() => handleSort("closed_at")}>
+                Exit Time{arrow("closed_at")}
               </th>
-              <th className="cursor-pointer pb-2 text-right font-medium" onClick={() => handleSort("minutes_held")}>
+              <th className="cursor-pointer pb-3 text-right text-sm font-semibold" onClick={() => handleSort("minutes_held")}>
                 Hold{arrow("minutes_held")}
               </th>
-              <th className="pb-2 text-left font-medium pl-2">Exit Reason</th>
-              <th className="cursor-pointer pb-2 text-right font-medium" onClick={() => handleSort("pnl_pct")}>
-                PnL%{arrow("pnl_pct")}
+              <th className="pb-3 text-left text-sm font-semibold pl-3">Reason</th>
+              <th className="cursor-pointer pb-3 text-right text-sm font-semibold" onClick={() => handleSort("pnl_pct")}>
+                PnL %{arrow("pnl_pct")}
               </th>
-              <th className="cursor-pointer pb-2 text-right font-medium" onClick={() => handleSort("peak_pnl_pct")}>
-                Peak%{arrow("peak_pnl_pct")}
+              <th className="cursor-pointer pb-3 text-right text-sm font-semibold" onClick={() => handleSort("peak_pnl_pct")}>
+                Peak %{arrow("peak_pnl_pct")}
               </th>
-              <th className="cursor-pointer pb-2 text-right font-medium" onClick={() => handleSort("peak_vs_exit_gap")}>
-                Gap%{arrow("peak_vs_exit_gap")}
+              <th className="cursor-pointer pb-3 text-right text-sm font-semibold" onClick={() => handleSort("peak_vs_exit_gap")}>
+                Gap %{arrow("peak_vs_exit_gap")}
               </th>
-              <th className="pb-2 text-right font-medium">Eff%</th>
+              <th className="pb-3 text-right text-sm font-semibold">Efficiency</th>
             </tr>
           </thead>
           <tbody>
@@ -121,26 +115,34 @@ export default function TradeJournal() {
               const holdStr = t.minutes_held != null
                 ? t.minutes_held >= 60 ? `${(t.minutes_held / 60).toFixed(1)}h` : `${t.minutes_held}m`
                 : "--";
-              const exitTime = t.closed_at ? new Date(t.closed_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "--";
+              const exitTime = t.closed_at
+                ? new Date(t.closed_at).toLocaleDateString("en-US", {
+                    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+                  })
+                : "--";
 
               return (
                 <tr key={i} style={{ borderBottom: "1px solid var(--color-border)" }}>
-                  <td className="py-1.5 font-medium" style={{ color: "var(--color-text-bright)" }}>{t.pool_name || "?"}</td>
-                  <td className="py-1.5 text-right" style={{ color: "var(--color-text-dim)" }}>{exitTime}</td>
-                  <td className="py-1.5 text-right">{holdStr}</td>
-                  <td className="py-1.5 pl-2">
+                  <td className="py-2.5 text-sm font-semibold" style={{ color: "var(--color-text-bright)" }}>
+                    {t.pool_name || "?"}
+                  </td>
+                  <td className="py-2.5 text-right text-sm" style={{ color: "var(--color-text-dim)" }}>
+                    {exitTime}
+                  </td>
+                  <td className="py-2.5 text-right text-sm">{holdStr}</td>
+                  <td className="py-2.5 pl-3">
                     <ReasonBadge category={t.exit_category} />
                   </td>
-                  <td className="py-1.5 text-right font-bold" style={{ color: pnlColor }}>
+                  <td className="py-2.5 text-right text-base font-bold" style={{ color: pnlColor }}>
                     {(t.pnl_pct ?? 0) >= 0 ? "+" : ""}{(t.pnl_pct ?? 0).toFixed(1)}%
                   </td>
-                  <td className="py-1.5 text-right" style={{ color: "var(--color-teal)" }}>
+                  <td className="py-2.5 text-right text-sm font-semibold" style={{ color: "var(--color-teal)" }}>
                     +{(t.peak_pnl_pct ?? 0).toFixed(1)}%
                   </td>
-                  <td className="py-1.5 text-right" style={{ color: gapColor }}>
+                  <td className="py-2.5 text-right text-sm font-semibold" style={{ color: gapColor }}>
                     {t.peak_vs_exit_gap.toFixed(1)}%
                   </td>
-                  <td className="py-1.5 text-right" style={{ color: "var(--color-text-dim)" }}>
+                  <td className="py-2.5 text-right text-sm" style={{ color: "var(--color-text-dim)" }}>
                     {t.range_efficiency != null ? `${t.range_efficiency}%` : "--"}
                   </td>
                 </tr>
@@ -151,7 +153,7 @@ export default function TradeJournal() {
       </div>
 
       {sorted.length === 0 && (
-        <div className="py-6 text-center text-[13px]" style={{ color: "var(--color-text-dim)" }}>
+        <div className="py-8 text-center text-base" style={{ color: "var(--color-text-dim)" }}>
           No closed trades yet
         </div>
       )}
@@ -172,15 +174,15 @@ const REASON_COLORS: Record<string, string> = {
 };
 
 const REASON_LABELS: Record<string, string> = {
-  FIXED_TP: "TP",
-  TRAILING_TP: "Trail",
-  STOP_LOSS: "SL",
-  OOR_TIMEOUT: "OOR",
-  YIELD_DEAD: "Dead",
-  EMERGENCY: "Emrg",
+  FIXED_TP: "Take Profit",
+  TRAILING_TP: "Trailing TP",
+  STOP_LOSS: "Stop Loss",
+  OOR_TIMEOUT: "OOR Timeout",
+  YIELD_DEAD: "Yield Dead",
+  EMERGENCY: "Emergency",
   AGENT_LEGACY: "Legacy",
   MANUAL: "Manual",
-  UNKNOWN: "?",
+  UNKNOWN: "Unknown",
 };
 
 function ReasonBadge({ category }: { category: string }) {
@@ -188,8 +190,8 @@ function ReasonBadge({ category }: { category: string }) {
   const label = REASON_LABELS[category] || category;
   return (
     <span
-      className="inline-block rounded px-1.5 py-0.5 text-[10px] font-bold uppercase"
-      style={{ color, border: `1px solid ${color}`, opacity: 0.85 }}
+      className="inline-block rounded-md px-2 py-1 text-xs font-bold"
+      style={{ color, border: `1px solid ${color}`, opacity: 0.9 }}
     >
       {label}
     </span>

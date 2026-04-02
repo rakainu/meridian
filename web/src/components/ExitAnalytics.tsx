@@ -71,8 +71,6 @@ export default function ExitAnalytics() {
   const { summary, thresholds } = data;
   const reasons = summary.exit_reasons || {};
   const maxCount = Math.max(...Object.values(reasons), 1);
-
-  // Sort reasons by count descending
   const sortedReasons = Object.entries(reasons).sort((a, b) => b[1] - a[1]);
 
   const gapColor = summary.avg_peak_vs_exit_gap > 2
@@ -82,65 +80,65 @@ export default function ExitAnalytics() {
       : "var(--color-green)";
 
   const gapHint = summary.avg_peak_vs_exit_gap > 3
-    ? "TP may be too tight — positions are peaking well above exit"
+    ? "TP may be too tight — positions peak well above exit"
     : summary.avg_peak_vs_exit_gap > 1.5
-      ? "Moderate gap — trailing TP is capturing most upside"
-      : "Exits are close to peak — thresholds look well-tuned";
+      ? "Moderate gap — trailing TP capturing most upside"
+      : "Exits close to peak — thresholds well-tuned";
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       {/* Peak vs Exit Analysis */}
-      <div className="rounded-xl p-3.5" style={{ background: "var(--color-card)", border: "1px solid var(--color-border)" }}>
-        <div className="mb-3">
-          <span className="text-xs font-semibold uppercase tracking-[1.5px]" style={{ color: "var(--color-text-dim)" }}>
+      <div className="rounded-xl p-5" style={{ background: "var(--color-card)", border: "1px solid var(--color-border)" }}>
+        <div className="mb-4">
+          <span className="text-sm font-semibold uppercase tracking-[1.5px]" style={{ color: "var(--color-text-dim)" }}>
             Peak vs Exit Gap
           </span>
         </div>
 
-        <div className="flex items-baseline gap-2">
-          <span className="text-2xl font-bold" style={{ color: gapColor }}>
+        <div className="flex items-baseline gap-3">
+          <span className="text-4xl font-bold" style={{ color: gapColor }}>
             {summary.avg_peak_vs_exit_gap.toFixed(1)}%
           </span>
-          <span className="text-[11px]" style={{ color: "var(--color-text-dim)" }}>
-            avg gap (peak PnL minus exit PnL)
+          <span className="text-sm" style={{ color: "var(--color-text-dim)" }}>
+            avg gap (peak minus exit)
           </span>
         </div>
-        <div className="mt-1 text-[11px]" style={{ color: "var(--color-text-faint)" }}>
+        <div className="mt-2 text-sm" style={{ color: "var(--color-text-faint)" }}>
           {gapHint}
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="mt-4 grid grid-cols-2 gap-3">
           <MiniStat label="Total Trades" value={String(summary.total)} />
           <MiniStat label="Win Rate" value={`${summary.win_rate_pct}%`} positive={summary.win_rate_pct >= 50} />
         </div>
       </div>
 
       {/* Exit Reason Distribution */}
-      <div className="rounded-xl p-3.5" style={{ background: "var(--color-card)", border: "1px solid var(--color-border)" }}>
-        <div className="mb-3">
-          <span className="text-xs font-semibold uppercase tracking-[1.5px]" style={{ color: "var(--color-text-dim)" }}>
+      <div className="rounded-xl p-5" style={{ background: "var(--color-card)", border: "1px solid var(--color-border)" }}>
+        <div className="mb-4">
+          <span className="text-sm font-semibold uppercase tracking-[1.5px]" style={{ color: "var(--color-text-dim)" }}>
             Exit Reasons
           </span>
         </div>
 
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           {sortedReasons.map(([reason, count]) => {
             const pct = summary.total > 0 ? Math.round((count / summary.total) * 100) : 0;
             const barWidth = Math.max((count / maxCount) * 100, 4);
             const color = REASON_COLORS[reason] || "#6b7280";
 
             return (
-              <div key={reason} className="flex items-center gap-2">
-                <span className="w-20 shrink-0 text-[11px] font-medium" style={{ color }}>
+              <div key={reason} className="flex items-center gap-3">
+                <span className="w-24 shrink-0 text-sm font-medium" style={{ color }}>
                   {REASON_LABELS[reason] || reason}
                 </span>
-                <div className="flex-1 rounded-full" style={{ background: "var(--color-deep)", height: 8 }}>
+                <div className="flex-1 rounded-full" style={{ background: "var(--color-deep)", height: 10 }}>
                   <div
                     className="rounded-full transition-all"
-                    style={{ width: `${barWidth}%`, height: 8, background: color, opacity: 0.8 }}
+                    style={{ width: `${barWidth}%`, height: 10, background: color, opacity: 0.8 }}
                   />
                 </div>
-                <span className="w-14 shrink-0 text-right text-[11px]" style={{ color: "var(--color-text-dim)" }}>
+                <span className="w-16 shrink-0 text-right text-sm font-semibold" style={{ color: "var(--color-text-dim)" }}>
                   {count} ({pct}%)
                 </span>
               </div>
@@ -149,21 +147,21 @@ export default function ExitAnalytics() {
         </div>
 
         {sortedReasons.length === 0 && (
-          <div className="py-3 text-center text-[12px]" style={{ color: "var(--color-text-dim)" }}>
+          <div className="py-4 text-center text-sm" style={{ color: "var(--color-text-dim)" }}>
             No exit data yet
           </div>
         )}
       </div>
 
       {/* Current Thresholds */}
-      <div className="rounded-xl p-3.5" style={{ background: "var(--color-card)", border: "1px solid var(--color-border)" }}>
-        <div className="mb-3">
-          <span className="text-xs font-semibold uppercase tracking-[1.5px]" style={{ color: "var(--color-text-dim)" }}>
+      <div className="rounded-xl p-5" style={{ background: "var(--color-card)", border: "1px solid var(--color-border)" }}>
+        <div className="mb-4">
+          <span className="text-sm font-semibold uppercase tracking-[1.5px]" style={{ color: "var(--color-text-dim)" }}>
             Current Exit Thresholds
           </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[12px]">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-2.5 text-sm">
           <ThresholdRow label="Take Profit" value={`+${thresholds.takeProfitFeePct}%`} color="var(--color-green)" />
           <ThresholdRow label="Trail Trigger" value={`+${thresholds.trailingTriggerPct}%`} color="var(--color-teal)" />
           <ThresholdRow label="Trail Drop" value={`${thresholds.trailingDropPct}%`} color="var(--color-teal)" />
@@ -178,10 +176,10 @@ export default function ExitAnalytics() {
 
 function MiniStat({ label, value, positive }: { label: string; value: string; positive?: boolean }) {
   return (
-    <div className="rounded-lg p-2" style={{ background: "var(--color-deep)" }}>
-      <span className="text-[10px] uppercase" style={{ color: "var(--color-text-dim)" }}>{label}</span>
+    <div className="rounded-lg p-3" style={{ background: "var(--color-deep)" }}>
+      <span className="text-xs uppercase tracking-wide" style={{ color: "var(--color-text-dim)" }}>{label}</span>
       <div
-        className="text-base font-bold"
+        className="mt-1 text-xl font-bold"
         style={{ color: positive != null ? (positive ? "var(--color-green)" : "var(--color-red)") : "white" }}
       >
         {value}
@@ -193,8 +191,8 @@ function MiniStat({ label, value, positive }: { label: string; value: string; po
 function ThresholdRow({ label, value, color }: { label: string; value: string; color: string }) {
   return (
     <>
-      <span style={{ color: "var(--color-text-dim)" }}>{label}</span>
-      <span className="font-bold text-right" style={{ color }}>{value}</span>
+      <span className="text-sm" style={{ color: "var(--color-text-dim)" }}>{label}</span>
+      <span className="text-base font-bold text-right" style={{ color }}>{value}</span>
     </>
   );
 }

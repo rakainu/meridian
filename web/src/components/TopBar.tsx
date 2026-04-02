@@ -6,9 +6,11 @@ interface TopBarProps {
   timers: TimerInfo;
   wallet: WalletData | null;
   onCommand: (cmd: string) => void;
+  page?: "dashboard" | "journal";
+  onPageChange?: (page: "dashboard" | "journal") => void;
 }
 
-export default function TopBar({ connected, status, timers, wallet, onCommand }: TopBarProps) {
+export default function TopBar({ connected, status, timers, wallet, onCommand, page = "dashboard", onPageChange }: TopBarProps) {
   return (
     <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: "1px solid var(--color-border)" }}>
       <div className="flex items-center gap-2.5">
@@ -37,6 +39,18 @@ export default function TopBar({ connected, status, timers, wallet, onCommand }:
         <span className="text-xs" style={{ color: "var(--color-text-dim)" }}>
           Screen: {timers.screening}
         </span>
+
+        <button
+          onClick={() => onPageChange?.(page === "dashboard" ? "journal" : "dashboard")}
+          className="rounded-md border px-3 py-1.5 text-sm font-semibold transition-colors hover:bg-white/5"
+          style={{
+            borderColor: page === "journal" ? "var(--color-teal)" : "var(--color-border-accent)",
+            color: page === "journal" ? "var(--color-card)" : "var(--color-teal)",
+            background: page === "journal" ? "var(--color-teal)" : "transparent",
+          }}
+        >
+          {page === "journal" ? "Back to Dashboard" : "Trade Journal"}
+        </button>
 
         <button
           onClick={() => onCommand("/pause")}
