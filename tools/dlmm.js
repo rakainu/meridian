@@ -602,6 +602,82 @@ let _positionsCache = null;
 let _positionsCacheAt = 0;
 let _positionsInflight = null; // deduplicates concurrent calls
 
+// ─── Compute real-time position data directly from on-chain (like UltraLP) ───
+async function computeOnChainPnl(poolAddress, positionAddress, solPrice = 0) {
+  try {
+    const pool = await getPool(poolAddress);
+    const activeBin = await pool.getActiveBin();
+    const activeBinId = activeBin.binId;
+
+    const posKey = new PublicKey(positionAddress);
+    const posData = await pool.getPosition(posKey);
+    const pd = posData.positionData;
+    if (!pd) return null;
+
+    const bins = pd.positionBinData || [];
+    const tokenYIsSol = pool.lbPair.tokenYMint.toString() === "So11111111111111111111111111111111111111112";
+
+    // Sum up token amounts across all bins
+    let totalX = 0, totalY = 0;
+    for (const b of bins) {
+      totalX += Number(b.positionXAmount || 0);
+      totalY += Number(b.positionYAmount || 0);
+    }
+
+    // Convert to human-readable amounts
+    // tokenY = SOL (9 decimals), tokenX = token (typically 6 or 9 decimals for pump tokens)
+    const tokenYDecimals = tokenYIsSol ? 9 : 6;
+    const tokenXDecimals = 6; // pump.fun tokens are 6 decimals
+    const yAmount = totalY / Math.pow(10, tokenYDecimals);
+    const xAmount = totalX / Math.pow(10, tokenXDecimals);
+
+    // Token X price in SOL from active bin
+    const tokenXPriceInSol = pool.fromPricePerLamport(Number(activeBin.price));
+
+    // Position value in SOL
+    const xValueSol = xAmount * tokenXPriceInSol;
+    const yValueSol = tokenYIsSol ? yAmount : 0;
+    const totalValueSol = xValueSol + yValueSol;
+    const totalValueUsd = solPrice > 0 ? totalValueSol * solPrice : 0;
+
+    // Unclaimed fees
+    const feeX = Number(pd.feeX || 0) / Math.pow(10, tokenXDecimals);
+    const feeY = Number(pd.feeY || 0) / Math.pow(10, tokenYDecimals);
+    const feeXSol = feeX * tokenXPriceInSol;
+    const feeYSol = tokenYIsSol ? feeY : 0;
+    const totalFeesSol = feeXSol + feeYSol;
+    const totalFeesUsd = solPrice > 0 ? totalFeesSol * solPrice : 0;
+
+    // In-range check
+    const lowerBinId = pd.lowerBinId;
+    const upperBinId = pd.upperBinId;
+    const inRange = activeBinId >= lowerBinId && activeBinId <= upperBinId;
+    const oorDirection = !inRange ? (activeBinId > upperBinId ? "upside" : "downside") : null;
+
+    return {
+      position: positionAddress,
+      pool: poolAddress,
+      total_value_sol: Math.round(totalValueSol * 10000) / 10000,
+      total_value_usd: Math.round(totalValueUsd * 100) / 100,
+      unclaimed_fees_sol: Math.round(totalFeesSol * 10000) / 10000,
+      unclaimed_fees_usd: Math.round(totalFeesUsd * 100) / 100,
+      token_x_amount: xAmount,
+      token_y_amount: yAmount,
+      token_x_price_sol: tokenXPriceInSol,
+      in_range: inRange,
+      oor_direction: oorDirection,
+      lower_bin: lowerBinId,
+      upper_bin: upperBinId,
+      active_bin: activeBinId,
+      bin_count: bins.length,
+      _source: "on-chain",
+    };
+  } catch (e) {
+    log("onchain_pnl_error", `Failed for ${positionAddress?.slice(0, 8)}: ${e.message}`);
+    return null;
+  }
+}
+
 // ─── Fetch DLMM PnL API for all positions in a pool ────────────
 async function fetchDlmmPnlForPool(poolAddress, walletAddress) {
   const url = `https://dlmm.datapi.meteora.ag/positions/${poolAddress}/pnl?user=${walletAddress}&status=open&pageSize=100&page=1`;
@@ -917,62 +993,47 @@ export async function getMyPositions({ force = false } = {}) {
     const solPrice = walletBalResult.sol_price || 0;
     const toSol = (usd) => solPrice > 0 ? Math.round((usd / solPrice) * 10000) / 10000 : null;
 
+    // ─── On-chain data (primary — real-time from Solana, like UltraLP) ───
+    const onChainResults = await Promise.all(
+      raw.map(r => computeOnChainPnl(r.pool, r.position, solPrice).catch(() => null))
+    );
+    const onChainByPosition = {};
+    for (const oc of onChainResults) {
+      if (oc) onChainByPosition[oc.position] = oc;
+    }
+
     const positions = await Promise.all(raw.map(async (r) => {
-      // LP Agent primary, Meteora fallback per position
+      // On-chain data is primary (real-time, no indexing delay)
+      const oc = onChainByPosition[r.position] || null;
+
+      // API data as fallback for fields on-chain doesn't provide (collected fees, PnL history)
       const p_lpa = lpAgentPositions?.get(r.position) || null;
-      // If LP Agent has this position, use it; otherwise fall back to Meteora for this specific position
       const p_met = !p_lpa ? (pnlByPool[r.pool]?.[r.position] || null) : null;
-      // If LP Agent was available but doesn't have this position, try Meteora for just this pool
-      let p_met_fallback = null;
-      if (lpAgentPositions && !p_lpa && !p_met) {
-        try {
-          const poolPnl = await fetchDlmmPnlForPool(r.pool, walletAddress);
-          p_met_fallback = poolPnl[r.position] || null;
-        } catch { /* no PnL data available */ }
-      }
-      const p = p_lpa ? normalizeLpAgentPosition(p_lpa) : (p_met || p_met_fallback);
+      const p = p_lpa ? normalizeLpAgentPosition(p_lpa) : p_met;
 
-      const lowerBin  = p?.lowerBinId      ?? r.lower_bin;
-      const upperBin  = p?.upperBinId      ?? r.upper_bin;
-      // Use Meteora active bin (accurate, no rate limit) over LP Agent's stale data.
-      // First try exact position match, then fall back to pool-level active bin
-      // (Meteora sometimes indexes positions under a different address).
-      const meteoraPos = meteoraOorData[r.pool]?.[r.position];
-      const activeBin = meteoraPos?.poolActiveBinId
-        ?? meteoraActiveBinByPool[r.pool]
-        ?? p?.poolActiveBinId
-        ?? null;
+      // Bins and active bin — prefer on-chain (authoritative)
+      const lowerBin  = oc?.lower_bin  ?? p?.lowerBinId ?? r.lower_bin;
+      const upperBin  = oc?.upper_bin  ?? p?.upperBinId ?? r.upper_bin;
+      const activeBin = oc?.active_bin ?? p?.poolActiveBinId ?? null;
 
-      // Compute in-range from active bin vs position bin range (authoritative)
-      let inRange;
-      if (activeBin != null && lowerBin != null && upperBin != null) {
-        inRange = activeBin >= lowerBin && activeBin <= upperBin;
-      } else if (meteoraPos) {
-        inRange = !meteoraPos.isOutOfRange;
-      } else {
-        inRange = p ? !p.isOutOfRange : true;
-      }
-      // Compute OOR direction: upside = price pumped above range, downside = price dropped below
-      let oorDirection = null;
-      if (!inRange && activeBin != null && upperBin != null && lowerBin != null) {
-        oorDirection = activeBin > upperBin ? "upside" : "downside";
-      }
+      // In-range and OOR direction — on-chain is authoritative
+      const inRange = oc?.in_range ?? (p ? !p.isOutOfRange : true);
+      const oorDirection = oc?.oor_direction ?? null;
       if (inRange) markInRange(r.position);
       else markOutOfRange(r.position, oorDirection);
 
-      const unclaimedFees = p ? (parseFloat(p.unrealizedPnl?.unclaimedFeeTokenX?.usd || 0) + parseFloat(p.unrealizedPnl?.unclaimedFeeTokenY?.usd || 0)) : 0;
-      const totalValue    = p ? parseFloat(p.unrealizedPnl?.balances || 0) : 0;
-      const collectedFees = p ? parseFloat(p.allTimeFees?.total?.usd || 0) : 0;
-      const pnlUsd        = p?.pnlUsd       ?? 0;
-      const pnlPct        = (config.management.pnlUnit === "sol" ? p?.pnlSolPctChange : p?.pnlPctChange) ?? 0;
+      // Value and fees — on-chain primary, API fallback
+      const unclaimedFeesUsd = oc?.unclaimed_fees_usd ?? (p ? (parseFloat(p.unrealizedPnl?.unclaimedFeeTokenX?.usd || 0) + parseFloat(p.unrealizedPnl?.unclaimedFeeTokenY?.usd || 0)) : 0);
+      const unclaimedFeesSol = oc?.unclaimed_fees_sol ?? toSol(unclaimedFeesUsd);
+      const totalValueUsd    = oc?.total_value_usd ?? (p ? parseFloat(p.unrealizedPnl?.balances || 0) : 0);
+      const totalValueSol    = oc?.total_value_sol ?? toSol(totalValueUsd);
+      const collectedFees    = p ? parseFloat(p.allTimeFees?.total?.usd || 0) : 0;
 
       const tracked = getTrackedPosition(r.position);
 
       // Auto-adopt untracked positions (manually opened or from external tools)
-      // Skip empty position accounts (0 value) — these are ghost accounts from
-      // failed deploys or the gap between createPosition and addLiquidity in wide-range deploys
-      const positionValue = parseFloat(p?.unrealizedPnl?.balances || 0)
-        + parseFloat(p?.allTimeDeposits?.total?.usd || 0);
+      const positionValue = totalValueUsd > 0 ? totalValueUsd
+        : (parseFloat(p?.unrealizedPnl?.balances || 0) + parseFloat(p?.allTimeDeposits?.total?.usd || 0));
       if (!tracked && p && positionValue > 0.10) {
         try {
           const { getPoolDetail } = await import("./screening.js");
@@ -1047,31 +1108,59 @@ export async function getMyPositions({ force = false } = {}) {
       // Prefer state age (our own tracking) — API age can be null for fresh positions
       const ageMinutes = ageFromState ?? ageFromPnlApi ?? null;
 
+      // ─── PnL computation: on-chain value vs initial deposit (real-time) ───
+      const initialUsd = trackedFinal?.initial_value_usd || 0;
+      const currentTotalUsd = totalValueUsd + unclaimedFeesUsd;
+      // Compute PnL from on-chain data when available, API fallback
+      let pnlUsd, pnlPct;
+      if (oc && initialUsd > 0) {
+        // Real-time: (current value + unclaimed fees) - initial deposit
+        pnlUsd = currentTotalUsd - initialUsd;
+        pnlPct = (pnlUsd / initialUsd) * 100;
+      } else {
+        // Fallback to API PnL
+        pnlUsd = p?.pnlUsd ?? 0;
+        pnlPct = (config.management.pnlUnit === "sol" ? p?.pnlSolPctChange : p?.pnlPctChange) ?? 0;
+      }
       const pnlUsdRounded = Math.round(pnlUsd * 100) / 100;
-      const unclaimedRounded = Math.round(unclaimedFees * 100) / 100;
-      // If API returns 0 value for fresh position, fall back to initial deploy value
-      const totalValFallback = totalValue > 0 ? totalValue : (trackedFinal?.initial_value_usd || 0);
+      const unclaimedRounded = Math.round(unclaimedFeesUsd * 100) / 100;
+      const totalValFallback = totalValueUsd > 0 ? totalValueUsd : (trackedFinal?.initial_value_usd || 0);
       const totalValRounded = Math.round(totalValFallback * 100) / 100;
       const collectedRounded = Math.round(collectedFees * 100) / 100;
 
-      // Composition: current token vs SOL amounts and USD split from LP Agent
+      // Composition from on-chain data
       let composition = null;
-      const lpaRaw = lpAgentPositions?.get(r.position);
-      if (lpaRaw?.current) {
-        const tokenAmt = lpaRaw.current.amount0Adjusted ?? 0;
-        const solAmt = lpaRaw.current.amount1Adjusted ?? 0;
-        const tokenUsd = tokenAmt * (lpaRaw.price0 || 0);
-        const solUsd = solAmt * (lpaRaw.price1 || 0);
+      if (oc) {
+        const tokenUsd = oc.token_x_amount * oc.token_x_price_sol * solPrice;
+        const solUsd = oc.token_y_amount * solPrice;
         const totalUsd = tokenUsd + solUsd;
         const solPct = totalUsd > 0 ? Math.round((solUsd / totalUsd) * 100) : 100;
         composition = {
-          token_amount: Math.round(tokenAmt * 100) / 100,
-          sol_amount: Math.round(solAmt * 10000) / 10000,
+          token_amount: Math.round(oc.token_x_amount * 100) / 100,
+          sol_amount: Math.round(oc.token_y_amount * 10000) / 10000,
           token_usd: Math.round(tokenUsd * 100) / 100,
           sol_usd: Math.round(solUsd * 100) / 100,
           sol_pct: solPct,
           token_pct: 100 - solPct,
         };
+      } else {
+        const lpaRaw = lpAgentPositions?.get(r.position);
+        if (lpaRaw?.current) {
+          const tokenAmt = lpaRaw.current.amount0Adjusted ?? 0;
+          const solAmt = lpaRaw.current.amount1Adjusted ?? 0;
+          const tokenUsd = tokenAmt * (lpaRaw.price0 || 0);
+          const solUsd = solAmt * (lpaRaw.price1 || 0);
+          const totalUsd = tokenUsd + solUsd;
+          const solPct = totalUsd > 0 ? Math.round((solUsd / totalUsd) * 100) : 100;
+          composition = {
+            token_amount: Math.round(tokenAmt * 100) / 100,
+            sol_amount: Math.round(solAmt * 10000) / 10000,
+            token_usd: Math.round(tokenUsd * 100) / 100,
+            sol_usd: Math.round(solUsd * 100) / 100,
+            sol_pct: solPct,
+            token_pct: 100 - solPct,
+          };
+        }
       }
 
       return {
@@ -1091,9 +1180,9 @@ export async function getMyPositions({ force = false } = {}) {
         oor_direction: oorDirection,
         composition,
         unclaimed_fees_usd: unclaimedRounded,
-        unclaimed_fees_sol: toSol(unclaimedRounded),
+        unclaimed_fees_sol: unclaimedFeesSol ?? toSol(unclaimedRounded),
         total_value_usd: totalValRounded,
-        total_value_sol: toSol(totalValRounded),
+        total_value_sol: totalValueSol ?? toSol(totalValRounded),
         collected_fees_usd: collectedRounded,
         collected_fees_sol: toSol(collectedRounded),
         pnl_usd: pnlUsdRounded,
