@@ -239,7 +239,7 @@ HARD CLOSE RULES (check in order — close immediately on first match, no furthe
 2. Position instruction exists but condition NOT met → HOLD (skip all other rules)
 3. pnl_pct >= ${config.management.takeProfitFeePct}% → CLOSE (take profit)
 4. minutes_out_of_range >= ${config.management.outOfRangeWaitMinutes} → CLOSE (OOR timeout). No exceptions — this is a hard rule regardless of OOR direction or PnL. Close and move on.
-5. fee_active_tvl_ratio < ${config.screening.minFeeActiveTvlRatio}% AND volume < $${config.screening.minVolume} AND age >= 10 minutes → CLOSE (yield dead). NEVER apply this rule to positions younger than 10 minutes — 5m data is meaningless for new positions.
+5. fee_active_tvl_ratio < ${config.screening.minFeeActiveTvlRatio}% AND volume < $${config.screening.minVolume} AND age >= 10 minutes AND position is IN RANGE → CLOSE (yield dead). NEVER apply this rule to OOR-upside positions — price is above your bins so 5m activity in your range will naturally be zero. That is expected, not a problem. Also never apply to positions younger than 10 minutes.
 6. pnl_pct <= ${config.management.emergencyPriceDropPct}% → CLOSE (emergency stop)
 
 These rules come from user-config. They are not suggestions. Do not override them.
