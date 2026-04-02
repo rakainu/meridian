@@ -136,13 +136,11 @@ function startCronJobs() {
     log("cron", `Starting management cycle [model: ${config.llm.managementModel}]`);
     let mgmtReport = null;
     try {
-      // Targeted recall + trailing TP / stop loss pre-check
+      // Targeted recall for management context (observation only)
       let memoryHints = "";
-      let exitAlerts = "";
       try {
         const pos = await getMyPositions();
         const recalls = [];
-        const exits = [];
         const holdTimeHints = [];
         for (const p of pos.positions || []) {
           // Memory recall
@@ -154,13 +152,9 @@ function startCronJobs() {
           rememberPositionSnapshot(p);
           if (p.pool) recordPoolSnapshot(p.pool, p);
 
-          // Trailing TP / stop loss check
+          // Update peak PnL tracking (still needed by pnl-watcher for trailing TP)
           if (p.pnl_pct != null) {
-            const exitAction = updatePnlAndCheckExits(p.position, p.pnl_pct, config);
-            if (exitAction) {
-              exits.push(`⚠ ${p.pair}: ${exitAction}`);
-              log("exit_check", `${p.pair}: ${exitAction}`);
-            }
+            updatePnlAndCheckExits(p.position, p.pnl_pct, config);
           }
 
           // Study hold time context — compare your age to top LPers
@@ -172,9 +166,6 @@ function startCronJobs() {
         }
         if (recalls.length > 0) {
           memoryHints = `\n\nMEMORY RECALL (from past sessions):\n${recalls.join("\n")}\n`;
-        }
-        if (exits.length > 0) {
-          exitAlerts = `\n\nEXIT ALERTS (CLOSE THESE IMMEDIATELY):\n${exits.join("\n")}\n`;
         }
         if (holdTimeHints.length > 0) {
           memoryHints += `\n\nTOP LPER HOLD TIME CONTEXT:\n${holdTimeHints.join("\n")}\n`;
@@ -232,47 +223,32 @@ function startCronJobs() {
 
       const pnlUnit = config.management.pnlUnit?.toUpperCase() || "SOL";
       const { content } = await agentLoop(`
-MANAGEMENT CYCLE${memoryHints}${exitAlerts}${autoCloseInfo}
+MANAGEMENT CYCLE — OBSERVATION MODE${memoryHints}${autoCloseInfo}
 
-HARD CLOSE RULES (check in order — close immediately on first match, no further analysis):
-1. Position instruction condition met → CLOSE immediately (highest priority)
-2. Position instruction exists but condition NOT met → HOLD (skip all other rules)
-3. pnl_pct >= ${config.management.takeProfitFeePct}% → CLOSE (take profit)
-4. minutes_out_of_range >= ${config.management.outOfRangeWaitMinutes} → CLOSE (OOR timeout). No exceptions — this is a hard rule regardless of OOR direction or PnL. Close and move on.
-5. fee_active_tvl_ratio < ${config.screening.minFeeActiveTvlRatio}% AND volume < $${config.screening.minVolume} AND age >= 30 minutes AND position is IN RANGE → CLOSE (yield dead). NEVER apply this rule to OOR-upside positions — price is above your bins so 5m activity in your range will naturally be zero. NEVER apply to positions younger than 30 minutes — pools need time to show their real trading pattern. Remember: 5m volume thresholds are LOW (e.g. $500) because this is a 5-minute window, not 1 hour. $200-300 per 5m candle = $2,400-3,600/hour which is a healthy pool. Do NOT raise minVolume — the current value is calibrated for 5m data.
-6. pnl_pct <= ${config.management.emergencyPriceDropPct}% → CLOSE (emergency stop)
-
-These rules come from user-config. They are not suggestions. Do not override them.
-If NO rule triggers → HOLD. Do not close for any other reason.
+You are monitoring simulated liquidity positions. Your role is OBSERVATION ONLY.
+You CANNOT close, withdraw, or exit positions. All exits are handled automatically
+by the risk management system running independently.
 
 STEPS:
 1. get_my_positions — check all open positions.
-2. For each position:
-   - Call get_position_pnl.
-   - Apply HARD CLOSE RULES above in order. First match → close, stop checking.
-   - If no rule triggers: HOLD.
-3. If closing: swap base tokens to SOL immediately after.
-4. After any close — recalibrate management interval (MANDATORY):
-   - No positions remaining → update_config setting=managementIntervalMin value=10
-   - Positions still open → keep current interval
-5. After closing a LOSING position — check MEMORY RECALL for patterns:
-   - If 3+ similar losses (same pool type, volatility range, or strategy) → use update_config to adjust the threshold that would have prevented it
-   - Examples: tighten maxVolatility, raise minOrganic, adjust stopLossPct, raise minVolume
+2. For each position, call get_position_pnl.
+3. Generate a status report (format below).
+4. Note any pool health concerns (volume trends, fee changes) for future screening decisions.
 
-IMPORTANT: pnl_pct ALREADY includes all fees. Negative PnL = losing money AFTER fees. Never say "fees will offset" — they are already counted.
+Automated exit rules (for your awareness — you do NOT execute these):
+- Stop loss: ${config.management.stopLossPct}%
+- Trailing TP: activates at +${config.management.trailingTriggerPct}%, trails by ${config.management.trailingDropPct}%
+- Fixed TP: +${config.management.takeProfitFeePct}%
+- OOR timeout: ${config.management.outOfRangeWaitMinutes} minutes
+- Yield dead: fee/TVL < ${config.screening.minFeeActiveTvlRatio}% AND volume < $${config.screening.minVolume}
+- Emergency: ${config.management.emergencyPriceDropPct}%
 
-REPORT FORMAT (Strictly follow this for each position — use ${pnlUnit} values):
-**[PAIR]** | Age: [X]m | Fees: [X] ${pnlUnit} | PnL: [X]% | OOR: [direction or "in-range"]
-**Rule triggered:** [rule number or "none"]
-**Decision:** [STAY/CLOSE]
-**Reason:** [1 short sentence — if PnL is negative, say IL exceeds fees]
+REPORT FORMAT (for each position — use ${pnlUnit} values):
+**[PAIR]** | Age: [X]m | Fees: [X] ${pnlUnit} | Score: [X]% | Range: [direction or "in-range"]
+**Status:** [HEALTHY/WATCHING/AUTO-CLOSED]
+**Notes:** [1 short sentence about pool health, volume trend, or anything notable]
 
-FAILURE ANALYSIS: When closing a LOSING position (negative PnL), you MUST call add_lesson with a specific, actionable lesson that explains:
-- What went wrong (entered during pump reversal? too volatile for the range? held too long for a scalper pool?)
-- What signal you missed or should have weighted differently
-- What you would do differently next time
-Do NOT write generic "FAILED: pool X with stats Y" — explain the WHY.
-Example: "AVOID: Entering NOTHING-SOL during 4h +70% pump — reversal risk is high. Top LPers hold 0.2h in this pool but we held 3.8h. Next time: match scalper cadence or skip pumping tokens."
+IMPORTANT: You are an observer. Do NOT suggest closing positions. Focus on pool health assessment and identifying patterns for future entry decisions.
       `, config.llm.maxSteps, [], "MANAGER", config.llm.managementModel);
       mgmtReport = content;
     } catch (error) {

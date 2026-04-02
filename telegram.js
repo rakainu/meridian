@@ -184,7 +184,17 @@ on("out_of_range", (data) => { if (isEnabled()) notifyOutOfRange(data).catch(() 
 on("pnl_watcher_close", (data) => {
   if (!isEnabled()) return;
   const sign = (data.pnlPct || 0) >= 0 ? "+" : "";
-  sendMessage(`⚡ PnL Watcher Auto-Close: ${data.pair}\n${data.reason}\nPnL: ${sign}${data.pnlPct?.toFixed(1)}%`).catch(() => {});
+  const peakSign = (data.peakPnlPct || 0) >= 0 ? "+" : "";
+  const holdTime = data.holdMinutes ? `${data.holdMinutes}m` : "?";
+  const gap = data.peakPnlPct != null && data.pnlPct != null
+    ? (data.peakPnlPct - data.pnlPct).toFixed(1)
+    : "?";
+  sendHTML(
+    `<b>Auto-Close:</b> ${data.pair}\n` +
+    `<b>Reason:</b> ${data.reason}\n` +
+    `<b>PnL:</b> ${sign}${data.pnlPct?.toFixed(1)}% | <b>Peak:</b> ${peakSign}${data.peakPnlPct?.toFixed(1)}%\n` +
+    `<b>Peak-Exit Gap:</b> ${gap}% | <b>Hold:</b> ${holdTime}`
+  ).catch(() => {});
 });
 on("cycle:management", ({ report }) => { if (isEnabled()) sendMessage(`🔄 Management Cycle\n\n${report}`).catch(() => {}); });
 on("cycle:screening", ({ report }) => { if (isEnabled()) sendMessage(`🔍 Screening Cycle\n\n${report}`).catch(() => {}); });

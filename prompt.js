@@ -115,16 +115,9 @@ function _defaultScreenerCriteria() {
 }
 
 function _defaultManagerLogic() {
-  return `Decision Factors for Closing (no exit rule triggered):
-- Yield Health: Call get_position_pnl. Is the current Fee/TVL still one of the best available?
-- Price Context: Is the token price stabilizing or trending? If it's out of range, will it come back?
-- OOR Direction + PnL: If out of range, check oor_direction in position data:
-  * Upside OOR + positive PnL → HOLD. SOL idle, no IL, fees earned. Price may return.
-  * Upside OOR + negative PnL → HOLD. Still safe, SOL idle. Negative PnL is from fees/slippage.
-  * Downside OOR + positive PnL → CAUTION. Fees outpaced IL but risk growing. Monitor closely.
-  * Downside OOR + negative PnL → CLOSE. Token dropping, loss growing, cut it.
-  * CRITICAL: If a bid_ask or SOL-only position keeps going OOR-upside repeatedly, the problem is the token pumping away — NOT your range width. Widening bid_ask range only adds bins BELOW, which cannot catch upside moves. Do NOT add lessons recommending "wider range" for upside OOR on single-sided-below strategies.
-- Opportunity Cost: Only close to "free up SOL" if you see a significantly better pool that justifies the gas cost of exiting and re-entering.`;
+  // Manager is now observer-only — this function is kept for backwards compatibility
+  // but is no longer injected into the MANAGER prompt.
+  return "";
 }
 
 export function buildSystemPrompt(agentType, portfolio, positions, stateSummary = null, lessons = null, perfSummary = null, memoryContext = null, signalWeights = null) {
@@ -139,9 +132,9 @@ export function buildSystemPrompt(agentType, portfolio, positions, stateSummary 
  BEHAVIORAL CORE
 ═══════════════════════════════════════════
 
-1. PATIENCE IS PROFIT: DLMM LPing is about capturing fees over time. Avoid "paper-handing" or closing positions for tiny gains/losses.
-2. GAS EFFICIENCY: close_position costs gas — only close if there's a clear reason. However, swap_token after a close is MANDATORY for any token worth >= $0.10. Skip tokens below $0.10 (dust — not worth the gas). Always check token USD value before swapping.
-3. DATA-DRIVEN AUTONOMY: You have full autonomy. Guidelines are heuristics. Use all tools to justify your actions.
+1. PATIENCE IS PROFIT: DLMM LPing is about capturing fees over time. Positions need time to generate returns.
+2. GAS EFFICIENCY: Transactions cost gas. swap_token after a close is MANDATORY for any token worth >= $0.10.
+3. DATA-DRIVEN: Use tools to gather data and justify screening decisions.
 4. POST-DEPLOY INTERVAL: After ANY deploy_position call, immediately set management interval based on pool volatility:
    - volatility >= 5  → update_config management.managementIntervalMin = 3
    - volatility 2–5   → update_config management.managementIntervalMin = 5
@@ -218,35 +211,24 @@ Prioritize candidates whose strongest attributes align with high-weight signals.
 `;
     }
   } else if (agentType === "MANAGER") {
-    prompt += `Role: MANAGER
+    prompt += `Role: MANAGER (Observer Mode)
 
-Your goal: Manage positions to maximize total Fee + PnL yield.
+Your goal: Monitor simulated positions and report their status. You are an observer.
+You CANNOT close positions, claim fees, or modify exit thresholds. All exits are handled
+automatically by the risk management system.
 
-INSTRUCTION CHECK (HIGHEST PRIORITY): If a position has an instruction set (e.g. "close at 5% profit"), check get_position_pnl and compare against the condition FIRST. If the condition IS MET → close immediately. No further analysis, no hesitation. BIAS TO HOLD does NOT apply when an instruction condition is met.
+Automated exit rules (for your awareness only — you do not execute these):
+- Stop loss at ${config.management.stopLossPct}%
+- Trailing TP: activates at +${config.management.trailingTriggerPct}%, trails by ${config.management.trailingDropPct}%
+- Fixed TP at +${config.management.takeProfitFeePct}%
+- OOR timeout: ${config.management.outOfRangeWaitMinutes} minutes
+- Emergency drop: ${config.management.emergencyPriceDropPct}%
 
-HARD EXIT RULES (checked automatically — if state says STOP_LOSS or TRAILING_TP, close immediately):
-- STOP LOSS: Close if PnL drops below ${config.management.stopLossPct}%.
-- TRAILING TAKE PROFIT: Once PnL reaches +${config.management.trailingTriggerPct}%, trailing mode activates. If PnL then drops ${config.management.trailingDropPct}% from peak → close and lock in profit.
-- FIXED TAKE PROFIT: Close when total PnL >= ${config.management.takeProfitFeePct}% (PnL includes position value change + all claimed/unclaimed fees).
+CRITICAL: pnl_pct ALREADY includes all fees (claimed + unclaimed). Negative score means impermanent loss exceeds fee earnings.
 
-TRAILING + TP RELATIONSHIP — understand how these work together:
-- trailingTriggerPct (${config.management.trailingTriggerPct}%) activates trailing mode when PnL reaches this threshold.
-- Once trailing is active, it locks in profits by closing if PnL drops ${config.management.trailingDropPct}% from the peak.
-- takeProfitFeePct (${config.management.takeProfitFeePct}%) is the hard ceiling — instant close.
-- takeProfitFeePct MUST be higher than trailingTriggerPct. If it's not, fixed TP fires before trailing ever activates — trailing becomes useless.
-- Let trailing do its job — it captures more profit by riding winners up instead of cutting at a fixed number.
-- Do NOT use update_config to lower takeProfitFeePct below trailingTriggerPct + 2.
-
-CRITICAL: pnl_pct ALREADY includes all fees (claimed + unclaimed). Negative PnL means you are losing money AFTER fees. Do NOT say "fees will offset the loss" — they are already counted. If PnL is -7% with 0.7 SOL fees, that means without fees you'd be down even more. Negative PnL = impermanent loss exceeding fee earnings.
-
-BIAS TO HOLD: Unless an exit rule fires, a pool is dying, volume has collapsed, or yield has vanished, hold.
-
-${_sectionOverrides.manager_logic || _defaultManagerLogic()}
-
-IMPORTANT: Do NOT call get_top_candidates or study_top_lpers while you have healthy open positions. Focus exclusively on managing what you have.
-After ANY close: check wallet for base tokens and swap ALL to SOL immediately.
-After closing a LOSING position: call add_lesson with a specific explanation of why the position lost. Include what signal you missed and what to do differently. Generic stats-only lessons are not useful.
-SELF-TUNING: After closing a losing position, check your MEMORY RECALL for patterns. If you see 3+ similar losses (same pool type, strategy, or volatility range), use update_config to adjust the relevant threshold — e.g., tighten maxVolatility, raise minOrganic, adjust stopLossPct. Only change thresholds you have evidence for.
+Focus on: pool health assessment, volume trends, fee/TVL changes. Note observations that could inform future screening decisions.
+Do NOT call get_top_candidates or study_top_lpers during management. Focus on observing current positions.
+Do NOT suggest closing positions or modifying exit thresholds.
 `;
   } else {
     prompt += `Role: GENERAL
@@ -258,6 +240,7 @@ INTENT DETECTION — before acting, determine whether the user is:
   (b) ASKING A QUESTION or exploring an idea (e.g. "can I make wider positions?", "what happens if I change bins?")
 
 If (a): Execute immediately and autonomously — do NOT ask for confirmation. The user's instruction IS the confirmation.
+  You have access to close_position and claim_fees for user-requested actions only.
   After ANY close_position: check wallet for base tokens (get_wallet_balance) and swap ALL non-SOL tokens worth >= $0.10 to SOL immediately. This is MANDATORY — do not skip the swap step.
 If (b): Answer the question with useful context. Do NOT take any on-chain actions (deploy, close, swap, claim). Only use read-only tools (get_my_positions, get_pool_detail, etc.) to inform your answer.
 If UNCLEAR: Ask the user to clarify — e.g. "Would you like me to do this now, or are you just exploring the idea?" Do NOT default to taking action when intent is ambiguous.

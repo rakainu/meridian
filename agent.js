@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { buildSystemPrompt } from "./prompt.js";
 import { executeTool } from "./tools/executor.js";
-import { tools } from "./tools/definitions.js";
+import { tools, userOnlyToolDefs } from "./tools/definitions.js";
 import { getWalletBalances } from "./tools/wallet.js";
 import { getMyPositions, getActiveBin } from "./tools/dlmm.js";
 import { log } from "./logger.js";
@@ -75,6 +75,9 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
     systemPrompt += `\n\nLP AGENT PERFORMANCE (real data from LP Agent API — use this for accurate PnL):\n${lpSummary}\n`;
   }
 
+  // GENERAL role gets user-only tools (close_position, claim_fees) in addition to base tools
+  const roleTools = agentType === "GENERAL" ? [...tools, ...userOnlyToolDefs] : tools;
+
   const messages = [
     { role: "system", content: systemPrompt },
     ...sessionHistory,          // inject prior conversation turns
@@ -97,7 +100,7 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
           response = await client.chat.completions.create({
             model: usedModel,
             messages,
-            tools,
+            tools: roleTools,
             tool_choice: "auto",
             temperature: config.llm.temperature,
             max_tokens: config.llm.maxTokens,
@@ -157,7 +160,7 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
           functionArgs = {};
         }
 
-        const result = await executeTool(functionName, functionArgs);
+        const result = await executeTool(functionName, functionArgs, agentType);
 
         return {
           role: "tool",

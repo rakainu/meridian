@@ -40,6 +40,7 @@ export function setStartupCache({ wallet, positions, candidates, lpOverview }) {
   _startupCache = { wallet, positions, candidates, lpOverview, ts: Date.now() };
 }
 import { getPerformanceSummary, getPerformanceHistory, listLessons, evolveThresholds } from "./lessons.js";
+import { getTrackedPositions } from "./state.js";
 import { getMemoryContext } from "./memory.js";
 import { buildKnowledgeGraph } from "./tools/knowledge-graph.js";
 import { log } from "./logger.js";
@@ -47,6 +48,20 @@ import { getScreeningThresholdSummary, normalizeCandidatesPayload } from "./runt
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distPath = path.join(__dirname, "web", "dist");
+
+// Categorize close_reason strings into buckets for analytics
+function categorizeCloseReason(reason) {
+  if (!reason) return "UNKNOWN";
+  const r = reason.toUpperCase();
+  if (r.includes("STOP_LOSS")) return "STOP_LOSS";
+  if (r.includes("TRAILING_TP")) return "TRAILING_TP";
+  if (r.includes("FIXED_TP")) return "FIXED_TP";
+  if (r.includes("OOR_TIMEOUT") || r.includes("OUT OF RANGE")) return "OOR_TIMEOUT";
+  if (r.includes("YIELD_DEAD")) return "YIELD_DEAD";
+  if (r.includes("EMERGENCY")) return "EMERGENCY";
+  if (r.includes("AGENT DECISION")) return "AGENT_LEGACY";
+  return "MANUAL";
+}
 
 const DEFAULT_PORT = 3737;
 
@@ -147,6 +162,74 @@ export function startServer(timersFn) {
     }
   });
 
+  // ─── Trade Journal — closed position analytics for threshold tuning ───
+  app.get("/api/journal", (_req, res) => {
+    try {
+      const days = parseInt(_req.query.days) || 30;
+      const history = getPerformanceHistory({ hours: days * 24, limit: 500 });
+      const positions = history.positions || [];
+
+      // Build lookup of tracked positions for peak PnL data
+      const allTracked = getTrackedPositions();
+      const trackedMap = {};
+      for (const t of allTracked) {
+        if (t.position) trackedMap[t.position] = t;
+      }
+
+      // Enrich each closed position with peak PnL and analytics
+      const trades = positions.map(p => {
+        const tracked = trackedMap[p.position] || {};
+        const peakPnlPct = tracked.peak_pnl_pct ?? p.pnl_pct ?? 0;
+        const exitPnlPct = p.pnl_pct ?? 0;
+        return {
+          ...p,
+          peak_pnl_pct: Math.round(peakPnlPct * 100) / 100,
+          peak_vs_exit_gap: Math.round((peakPnlPct - exitPnlPct) * 100) / 100,
+          hold_time_hours: p.minutes_held ? Math.round(p.minutes_held / 6) / 10 : null,
+          range_efficiency: p.range_efficiency != null ? Math.round(p.range_efficiency * 10) / 10 : null,
+          exit_category: categorizeCloseReason(p.close_reason),
+        };
+      });
+
+      // Exit reason breakdown
+      const reasonCounts = {};
+      for (const t of trades) {
+        reasonCounts[t.exit_category] = (reasonCounts[t.exit_category] || 0) + 1;
+      }
+
+      // Aggregate stats
+      const avgPeakGap = trades.length > 0
+        ? Math.round(trades.reduce((s, t) => s + t.peak_vs_exit_gap, 0) / trades.length * 100) / 100
+        : 0;
+
+      const wins = trades.filter(t => (t.pnl_pct ?? 0) > 0).length;
+
+      res.json({
+        trades,
+        summary: {
+          total: trades.length,
+          wins,
+          win_rate_pct: trades.length > 0 ? Math.round((wins / trades.length) * 100) : 0,
+          avg_peak_vs_exit_gap: avgPeakGap,
+          exit_reasons: reasonCounts,
+        },
+        thresholds: {
+          stopLossPct: config.management.stopLossPct,
+          takeProfitFeePct: config.management.takeProfitFeePct,
+          trailingTriggerPct: config.management.trailingTriggerPct,
+          trailingDropPct: config.management.trailingDropPct,
+          outOfRangeWaitMinutes: config.management.outOfRangeWaitMinutes,
+          emergencyPriceDropPct: config.management.emergencyPriceDropPct,
+          minFeeActiveTvlRatio: config.screening.minFeeActiveTvlRatio,
+          minVolume: config.screening.minVolume,
+        },
+      });
+    } catch (err) {
+      log("server_error", `GET /api/journal failed: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/candidates", async (_req, res) => {
     try {
       const result = await getTopCandidates({ limit: 5 });
@@ -222,6 +305,19 @@ export function startServer(timersFn) {
     const [pos, wal] = await Promise.allSettled([getMyPositions(), getWalletBalances()]);
     if (pos.status === "fulfilled") broadcast(wss, { type: "positions", data: pos.value });
     if (wal.status === "fulfilled") broadcast(wss, { type: "wallet", data: wal.value });
+  });
+
+  // Broadcast enriched close data for trade journal real-time updates
+  on("pnl_watcher_close", (data) => {
+    broadcast(wss, { type: "trade_closed", data: {
+      pair: data.pair,
+      pnl_pct: data.pnlPct,
+      peak_pnl_pct: data.peakPnlPct,
+      peak_vs_exit_gap: (data.peakPnlPct || 0) - (data.pnlPct || 0),
+      hold_minutes: data.holdMinutes,
+      exit_reason: data.reason,
+      exit_category: categorizeCloseReason(data.reason),
+    }});
   });
 
   on("chat:response", (data) => {

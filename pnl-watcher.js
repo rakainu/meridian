@@ -10,10 +10,13 @@ import { log } from "./logger.js";
 import { config } from "./config.js";
 import { updatePnlAndCheckExits, getTrackedPosition } from "./state.js";
 import { getMyPositions, closePosition } from "./tools/dlmm.js";
+import { getPoolDetail } from "./tools/screening.js";
 import { getWalletBalances, swapToken } from "./tools/wallet.js";
 import { emit } from "./notifier.js";
 import { isManagementBusy } from "./session.js";
 import fs from "fs";
+
+let _tickCount = 0; // Used to throttle yield-dead checks (every 5th tick)
 
 const STATE_FILE = "./state.json";
 const SOL_MINT = "So11111111111111111111111111111111111111112";
@@ -45,6 +48,7 @@ function saveState(state) {
 // ─── Core watcher tick ───────────────────────────────────────────────────
 
 export async function runPnlWatcher() {
+  _tickCount++;
   try {
     // Guard: skip if management cycle is currently running
     if (isManagementBusy()) return;
@@ -81,9 +85,39 @@ export async function runPnlWatcher() {
           config.management.takeProfitFeePct &&
           p.pnl_pct >= config.management.takeProfitFeePct;
 
-        const reason = exitAction || (fixedTpHit
+        let reason = exitAction || (fixedTpHit
           ? `FIXED_TP: PnL ${p.pnl_pct.toFixed(1)}% >= take profit (${config.management.takeProfitFeePct}%)`
           : null);
+
+        // OOR timeout check
+        if (!reason && p.in_range === false &&
+            p.minutes_out_of_range >= config.management.outOfRangeWaitMinutes) {
+          reason = `OOR_TIMEOUT: Out of range ${Math.round(p.minutes_out_of_range)}m >= ${config.management.outOfRangeWaitMinutes}m threshold`;
+        }
+
+        // Emergency price drop check
+        if (!reason && config.management.emergencyPriceDropPct &&
+            p.pnl_pct <= config.management.emergencyPriceDropPct) {
+          reason = `EMERGENCY_DROP: PnL ${p.pnl_pct.toFixed(1)}% <= emergency threshold (${config.management.emergencyPriceDropPct}%)`;
+        }
+
+        // Yield-dead check (throttled — every 5th tick to avoid API spam)
+        if (!reason && p.in_range !== false && _tickCount % 5 === 0) {
+          const ageMs = tracked?.deployed_at ? Date.now() - new Date(tracked.deployed_at).getTime() : Infinity;
+          const ageMinutes = ageMs / 60000;
+          if (ageMinutes >= 30 && tracked?.pool) {
+            try {
+              const poolData = await getPoolDetail({ pool_address: tracked.pool, timeframe: "5m" });
+              const feeRatio = poolData?.fee_active_tvl_ratio ?? 999;
+              const volume = poolData?.volume ?? 999999;
+              if (feeRatio < config.screening.minFeeActiveTvlRatio && volume < config.screening.minVolume) {
+                reason = `YIELD_DEAD: fee/TVL ${feeRatio}% < ${config.screening.minFeeActiveTvlRatio}%, vol $${Math.round(volume)} < $${config.screening.minVolume}`;
+              }
+            } catch (e) {
+              log("pnl_watcher_warn", `Yield-dead check failed for ${p.pair}: ${e.message}`);
+            }
+          }
+        }
 
         if (!reason) continue;
 
@@ -99,6 +133,7 @@ export async function runPnlWatcher() {
             collected_fees_usd: p.collected_fees_usd,
             unclaimed_fees_usd: p.unclaimed_fees_usd,
           },
+          _closeReason: reason,
         });
 
         if (!closeResult?.success) {
@@ -162,11 +197,16 @@ export async function runPnlWatcher() {
         }
 
         // ─── Emit custom event (closePosition already emits "close") ─
+        const trackedForEmit = getTrackedPosition(p.position);
         emit("pnl_watcher_close", {
           pair: p.pair,
           pnlPct: p.pnl_pct,
           pnlSol: p.pnl_sol,
           pnlUsd: p.pnl_usd,
+          peakPnlPct: trackedForEmit?.peak_pnl_pct || 0,
+          holdMinutes: trackedForEmit?.deployed_at
+            ? Math.round((Date.now() - new Date(trackedForEmit.deployed_at).getTime()) / 60000)
+            : 0,
           autoClose: true,
           reason,
         });

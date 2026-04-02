@@ -1233,7 +1233,7 @@ export async function claimFees({ position_address }) {
 }
 
 // ─── Close Position ────────────────────────────────────────────
-export async function closePosition({ position_address, _pnlOverride = null }) {
+export async function closePosition({ position_address, _pnlOverride = null, _closeReason = null }) {
   position_address = normalizeMint(position_address);
   if (process.env.DRY_RUN === "true") {
     return { dry_run: true, would_close: position_address, message: "DRY RUN — no transaction sent" };
@@ -1343,7 +1343,7 @@ export async function closePosition({ position_address, _pnlOverride = null }) {
     // Record performance for learning
     const tracked = getTrackedPosition(position_address);
     const oorDir = tracked?.oor_direction || null;
-    const closeReason = oorDir ? `agent decision (OOR ${oorDir})` : "agent decision";
+    const closeReason = _closeReason || (oorDir ? `agent decision (OOR ${oorDir})` : "agent decision");
     recordClose(position_address, closeReason);
     if (tracked) {
       const deployedAt = new Date(tracked.deployed_at).getTime();

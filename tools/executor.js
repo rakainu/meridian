@@ -54,8 +54,8 @@ const toolMap = {
   remove_smart_wallet: removeSmartWallet,
   list_smart_wallets: listSmartWallets,
   check_smart_wallets_on_pool: checkSmartWalletsOnPool,
-  claim_fees: claimFees,
-  close_position: closePosition,
+  // close_position and claim_fees removed from LLM — all exits handled by pnl-watcher
+  // closePosition is still importable for pnl-watcher and user-initiated (GENERAL role) closes
   get_wallet_balance: getWalletBalances,
   swap_token: swapToken,
   get_top_lpers: studyTopLPers,
@@ -93,11 +93,7 @@ const toolMap = {
   pin_lesson: ({ id }) => pinLesson(id),
   unpin_lesson: ({ id }) => unpinLesson(id),
   list_lessons: ({ role, pinned, tag, limit } = {}) => listLessons({ role, pinned, tag, limit }),
-  set_position_note: ({ position_address, instruction }) => {
-    const ok = setPositionInstruction(position_address, instruction || null);
-    if (!ok) return { error: `Position ${position_address} not found in state` };
-    return { saved: true, position: position_address, instruction: instruction || null };
-  },
+  // set_position_note removed — position instructions allowed LLM to backdoor exit control
   self_update: async () => {
     try {
       const result = execSync("git pull", { cwd: process.cwd(), encoding: "utf8" }).trim();
@@ -167,9 +163,16 @@ const toolMap = {
     const applied = {};
     const unknown = [];
 
-    const LOCKED_KEYS = new Set(["minVolume", "minFeeActiveTvlRatio"]);
+    // Lock all exit-related keys — only human can tune exit thresholds
+    const LOCKED_KEYS = new Set([
+      "stopLossPct", "takeProfitFeePct",
+      "trailingTriggerPct", "trailingDropPct", "trailingTakeProfit",
+      "emergencyPriceDropPct", "outOfRangeWaitMinutes",
+      "minVolume", "minFeeActiveTvlRatio",
+    ]);
+
     for (const [key, val] of Object.entries(changes)) {
-      if (LOCKED_KEYS.has(key)) { unknown.push(`${key} (locked — cannot be changed by agent)`); continue; }
+      if (LOCKED_KEYS.has(key)) { unknown.push(`${key} (locked — exit thresholds are human-tuned only)`); continue; }
       if (!CONFIG_KEY_MAP[key]) { unknown.push(key); continue; }
       // Coerce numeric strings to numbers (model sometimes passes "5" instead of 5)
       const coerced = typeof val === "string" && /^-?\d+(\.\d+)?$/.test(val) ? Number(val) : val;
@@ -228,14 +231,32 @@ const WRITE_TOOLS = new Set([
   "swap_token",
 ]);
 
+// Tools only available to GENERAL role (user-initiated commands via Telegram/chat)
+const USER_ONLY_TOOLS = {
+  close_position: closePosition,
+  claim_fees: claimFees,
+};
+
 /**
  * Execute a tool call with safety checks and logging.
+ * @param {string} role - Agent role (GENERAL, MANAGER, SCREENER)
  */
-export async function executeTool(name, args) {
+export async function executeTool(name, args, role = "GENERAL") {
   const startTime = Date.now();
 
   // ─── Validate tool exists ─────────────────
-  const fn = toolMap[name];
+  let fn = toolMap[name];
+
+  // Check user-only tools — only accessible to GENERAL role (user-initiated)
+  if (!fn && USER_ONLY_TOOLS[name]) {
+    if (role === "GENERAL") {
+      fn = USER_ONLY_TOOLS[name];
+    } else {
+      log("safety_block", `${name} blocked — only available for user-initiated commands (GENERAL role)`);
+      return { blocked: true, reason: `${name} is not available in ${role} mode. All exits are handled automatically.` };
+    }
+  }
+
   if (!fn) {
     const error = `Unknown tool: ${name}`;
     log("error", error);

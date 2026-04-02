@@ -1,3 +1,43 @@
+// Tools available only to GENERAL role (user-initiated commands via Telegram/chat)
+export const userOnlyToolDefs = [
+  {
+    type: "function",
+    function: {
+      name: "close_position",
+      description: `Remove all liquidity and close a position. Only use when the user explicitly asks to close a position.
+WARNING: This executes a real on-chain transaction. Cannot be undone.`,
+      parameters: {
+        type: "object",
+        properties: {
+          position_address: {
+            type: "string",
+            description: "The position public key to close"
+          }
+        },
+        required: ["position_address"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "claim_fees",
+      description: `Claim accumulated swap fees from a specific position. Only use when the user explicitly asks.
+WARNING: This executes a real on-chain transaction.`,
+      parameters: {
+        type: "object",
+        properties: {
+          position_address: {
+            type: "string",
+            description: "The position public key to claim fees from"
+          }
+        },
+        required: ["position_address"]
+      }
+    }
+  },
+];
+
 export const tools = [
   // ═══════════════════════════════════════════
   //  SCREENING TOOLS
@@ -283,53 +323,10 @@ Use this at the start of every management cycle.`,
     }
   },
 
-  {
-    type: "function",
-    function: {
-      name: "claim_fees",
-      description: `Claim accumulated swap fees from a specific position.
-Only call when unclaimed fees > $5 to justify transaction costs.
-Returns the transaction hash and amounts claimed.
-
-WARNING: This executes a real on-chain transaction.`,
-      parameters: {
-        type: "object",
-        properties: {
-          position_address: {
-            type: "string",
-            description: "The position public key to claim fees from"
-          }
-        },
-        required: ["position_address"]
-      }
-    }
-  },
-
-  {
-    type: "function",
-    function: {
-      name: "close_position",
-      description: `Remove all liquidity and close a position.
-This withdraws all tokens back to the wallet and closes the position account.
-Use when:
-- Position has been out of range for > 30 minutes
-- IL exceeds accumulated fees
-- Token shows danger signals (organic score drop, volume crash)
-- Rebalancing (close old + open new)
-
-WARNING: This executes a real on-chain transaction. Cannot be undone.`,
-      parameters: {
-        type: "object",
-        properties: {
-          position_address: {
-            type: "string",
-            description: "The position public key to close"
-          }
-        },
-        required: ["position_address"]
-      }
-    }
-  },
+  // claim_fees and close_position removed from autonomous agent tools.
+  // All exits are handled by pnl-watcher (code-only).
+  // These tools are still available for user-initiated commands via GENERAL role
+  // (see USER_ONLY_TOOLS in executor.js).
 
   {
     type: "function",
@@ -690,35 +687,7 @@ Modes:
     }
   },
 
-  {
-    type: "function",
-    function: {
-      name: "set_position_note",
-      description: `Save a persistent instruction for a position that ALL future management cycles will respect.
-Use this immediately whenever the user gives a specific instruction about a position:
-- "hold until 5% profit"
-- "don't close before fees hit $10"
-- "close if it goes out of range"
-- "hold for at least 2 hours"
-
-The instruction is stored in state.json and injected into every management cycle prompt.
-Pass null or empty string to clear an existing instruction.`,
-      parameters: {
-        type: "object",
-        properties: {
-          position_address: {
-            type: "string",
-            description: "The position address to attach the instruction to"
-          },
-          instruction: {
-            type: "string",
-            description: "The instruction to persist (e.g. 'hold until PnL >= 5%'). Pass empty string to clear."
-          }
-        },
-        required: ["position_address", "instruction"]
-      }
-    }
-  },
+  // set_position_note removed — position instructions allowed LLM to backdoor exit control.
 
   {
     type: "function",
