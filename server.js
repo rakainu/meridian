@@ -45,7 +45,7 @@ import { getMemoryContext } from "./memory.js";
 import { buildKnowledgeGraph } from "./tools/knowledge-graph.js";
 import { log } from "./logger.js";
 import { getScreeningThresholdSummary, normalizeCandidatesPayload } from "./runtime-helpers.js";
-import { getFM3Positions, getFM3ClosedTrades, getFM3SessionSummary } from "./fm3-bridge.js";
+import { getFM3Positions, getFM3ClosedTrades, getFM3SessionSummary, getFM3Status, setFM3Enabled } from "./fm3-bridge.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distPath = path.join(__dirname, "web", "dist");
@@ -259,6 +259,21 @@ export function startServer(timersFn) {
       log("server_error", `GET /api/candidates failed: ${err.message}`);
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // ─── FM3 Strategy Controls ───
+  app.get("/api/fm3/status", (_req, res) => {
+    res.json(getFM3Status());
+  });
+
+  app.post("/api/fm3/start", (_req, res) => {
+    const result = setFM3Enabled(true);
+    res.json(result);
+  });
+
+  app.post("/api/fm3/stop", (_req, res) => {
+    const result = setFM3Enabled(false);
+    res.json(result);
   });
 
   // Static files — only if the dist directory exists (production build)

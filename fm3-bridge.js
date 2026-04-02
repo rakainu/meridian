@@ -128,6 +128,52 @@ export function getFM3SessionSummary() {
   };
 }
 
+// ─── FM3 Start / Stop / Status controls ───
+
+const FM3_CONFIG_FILE = path.join(FM3_DATA_DIR, "fee-machine-v3-config.json");
+
+/** Get FM3 running status by reading its config + dashboard freshness. */
+export function getFM3Status() {
+  const dash = getFM3Dashboard();
+  try {
+    const cfg = fs.existsSync(FM3_CONFIG_FILE)
+      ? JSON.parse(fs.readFileSync(FM3_CONFIG_FILE, "utf-8"))
+      : null;
+    const enabled = cfg?.enabled ?? false;
+    const updatedAt = dash?.updated_at || null;
+    const stale = updatedAt ? (Date.now() - new Date(updatedAt).getTime()) > 120000 : true;
+    return {
+      enabled,
+      status: dash?.status || (enabled ? "STARTING" : "STOPPED"),
+      stale,
+      updated_at: updatedAt,
+      session: dash?.session || null,
+      active_positions: dash?.active_positions?.length ?? 0,
+    };
+  } catch (err) {
+    return { enabled: false, status: "ERROR", error: err.message };
+  }
+}
+
+/** Toggle FM3 enabled flag in its config file. */
+export function setFM3Enabled(enabled) {
+  try {
+    if (!fs.existsSync(FM3_CONFIG_FILE)) {
+      return { ok: false, error: "FM3 config not found" };
+    }
+    const cfg = JSON.parse(fs.readFileSync(FM3_CONFIG_FILE, "utf-8"));
+    cfg.enabled = !!enabled;
+    const tmp = FM3_CONFIG_FILE + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2));
+    fs.renameSync(tmp, FM3_CONFIG_FILE);
+    log("fm3_bridge", `FM3 ${enabled ? "enabled" : "disabled"} via config`);
+    return { ok: true, enabled: cfg.enabled };
+  } catch (err) {
+    log("fm3_bridge", `Failed to toggle FM3: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+}
+
 /** Map FM3 exit reasons to Meridian's exit categories. */
 function categorizeFM3ExitReason(reason) {
   if (!reason) return "UNKNOWN";
