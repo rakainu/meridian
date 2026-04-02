@@ -45,6 +45,7 @@ import { getMemoryContext } from "./memory.js";
 import { buildKnowledgeGraph } from "./tools/knowledge-graph.js";
 import { log } from "./logger.js";
 import { getScreeningThresholdSummary, normalizeCandidatesPayload } from "./runtime-helpers.js";
+import { getFM3Positions, getFM3ClosedTrades, getFM3SessionSummary } from "./fm3-bridge.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distPath = path.join(__dirname, "web", "dist");
@@ -142,7 +143,13 @@ export function startServer(timersFn) {
       if (!solPrice) {
         try { const w = await getWalletBalances(); solPrice = w?.sol_price || 0; } catch {}
       }
-      const positions = history.positions || [];
+      const marvPositions = history.positions || [];
+
+      // Merge FM3 closed trades (filter by time window)
+      const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+      const fm3Trades = getFM3ClosedTrades(solPrice).filter(t => t.closed_at && t.closed_at >= cutoff);
+      const positions = [...marvPositions, ...fm3Trades];
+
       const totalPnlUsd = positions.reduce((s, r) => s + (r.pnl_usd ?? 0), 0);
       const totalFeesUsd = positions.reduce((s, r) => s + (r.fees_earned_usd ?? 0), 0);
       const wins = positions.filter((r) => (r.pnl_usd ?? 0) > 0).length;
@@ -163,7 +170,7 @@ export function startServer(timersFn) {
   });
 
   // ─── Trade Journal — closed position analytics for threshold tuning ───
-  app.get("/api/journal", (_req, res) => {
+  app.get("/api/journal", async (_req, res) => {
     try {
       const days = parseInt(_req.query.days) || 30;
       const history = getPerformanceHistory({ hours: days * 24, limit: 500 });
@@ -176,8 +183,8 @@ export function startServer(timersFn) {
         if (t.position) trackedMap[t.position] = t;
       }
 
-      // Enrich each closed position with peak PnL and analytics
-      const trades = positions.map(p => {
+      // Enrich each Marv closed position with peak PnL and analytics
+      const marvTrades = positions.map(p => {
         const tracked = trackedMap[p.position] || {};
         // Recompute pnl_pct from USD values when it was recorded as 0 (pre-existing bug)
         let exitPnlPct = p.pnl_pct ?? 0;
@@ -195,6 +202,15 @@ export function startServer(timersFn) {
           exit_category: categorizeCloseReason(p.close_reason),
         };
       });
+
+      // Merge FM3 closed trades (already have exit_category set by bridge)
+      let solPrice = _startupCache.wallet?.sol_price || 0;
+      if (!solPrice) {
+        try { const w = await getWalletBalances(); solPrice = w?.sol_price || 0; } catch {}
+      }
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const fm3Trades = getFM3ClosedTrades(solPrice).filter(t => t.closed_at && t.closed_at >= cutoff);
+      const trades = [...marvTrades, ...fm3Trades];
 
       // Exit reason breakdown
       const reasonCounts = {};
@@ -265,6 +281,18 @@ export function startServer(timersFn) {
     });
   }
 
+  // Merge FM3 active positions into Marv's position data for dashboard
+  function mergeFM3Positions(marvData) {
+    if (!marvData) return marvData;
+    const fm3 = getFM3Positions();
+    if (fm3.length === 0) return marvData;
+    return {
+      ...marvData,
+      total_positions: (marvData.total_positions || 0) + fm3.length,
+      positions: [...(marvData.positions || []), ...fm3],
+    };
+  }
+
   // ═══════════════════════════════════════════
   //  NOTIFIER → WebSocket BRIDGE
   // ═══════════════════════════════════════════
@@ -288,7 +316,7 @@ export function startServer(timersFn) {
     cacheNotification("cycle:management", data);
     broadcast(wss, { type: "notification", event: "cycle:management", data });
     const [pos, wal] = await Promise.allSettled([getMyPositions(), getWalletBalances()]);
-    if (pos.status === "fulfilled") broadcast(wss, { type: "positions", data: pos.value });
+    if (pos.status === "fulfilled") broadcast(wss, { type: "positions", data: mergeFM3Positions(pos.value) });
     if (wal.status === "fulfilled") broadcast(wss, { type: "wallet", data: wal.value });
   });
 
@@ -302,13 +330,13 @@ export function startServer(timersFn) {
   // Also broadcast fresh data after deploy/close events
   on("deploy", async () => {
     const [pos, wal] = await Promise.allSettled([getMyPositions(), getWalletBalances()]);
-    if (pos.status === "fulfilled") broadcast(wss, { type: "positions", data: pos.value });
+    if (pos.status === "fulfilled") broadcast(wss, { type: "positions", data: mergeFM3Positions(pos.value) });
     if (wal.status === "fulfilled") broadcast(wss, { type: "wallet", data: wal.value });
   });
 
   on("close", async () => {
     const [pos, wal] = await Promise.allSettled([getMyPositions(), getWalletBalances()]);
-    if (pos.status === "fulfilled") broadcast(wss, { type: "positions", data: pos.value });
+    if (pos.status === "fulfilled") broadcast(wss, { type: "positions", data: mergeFM3Positions(pos.value) });
     if (wal.status === "fulfilled") broadcast(wss, { type: "wallet", data: wal.value });
   });
 
@@ -388,7 +416,7 @@ export function startServer(timersFn) {
         management: timerInfo.management ?? "---",
         screening: timerInfo.screening ?? "---",
       },
-      positions: positions.status === "fulfilled" ? positions.value : null,
+      positions: positions.status === "fulfilled" ? mergeFM3Positions(positions.value) : null,
       wallet: wallet.status === "fulfilled" ? wallet.value : null,
       candidates: candidateResult.status === "fulfilled" ? normalizeCandidatesPayload(candidateResult.value) : null,
       lpOverview: lpOverviewResult.status === "fulfilled" ? lpOverviewResult.value : null,
