@@ -1046,15 +1046,19 @@ export function getPerformanceHistory({ hours = 24, limit = 50 } = {}) {
     .filter((r) => r.recorded_at >= cutoff)
     .slice(-limit)
     .map((r) => ({
+      position: r.position,
       pool_name: r.pool_name,
       pool: r.pool,
       strategy: r.strategy,
       pnl_usd: r.pnl_usd,
       pnl_pct: r.pnl_pct,
       fees_earned_usd: r.fees_earned_usd,
+      initial_value_usd: r.initial_value_usd,
+      final_value_usd: r.final_value_usd,
       range_efficiency: r.range_efficiency,
       minutes_held: r.minutes_held,
       close_reason: r.close_reason,
+      deployed_at: r.deployed_at,
       closed_at: r.recorded_at,
     }));
 
