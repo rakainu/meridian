@@ -27,8 +27,10 @@ function formatAge(minutes: number): string {
 function PositionCardInner({ position }: { position: PositionInfo }) {
   const { pair, pool, base_mint, in_range, pnl_pct, unclaimed_fees_sol, unclaimed_fees_usd, age_minutes, active_bin, lower_bin, upper_bin } = position;
 
+  const total_value_sol = (position as any).total_value_sol;
   const pnlColor = pnl_pct >= 0 ? "text-emerald-400" : "text-red-400";
   const fees = unclaimed_fees_sol != null ? `${unclaimed_fees_sol.toFixed(4)} SOL` : unclaimed_fees_usd != null ? `$${unclaimed_fees_usd.toFixed(2)}` : "--";
+  const value = total_value_sol != null ? `${total_value_sol.toFixed(4)} SOL` : "--";
   const canOpenToken = Boolean(base_mint && base_mint !== WRAPPED_SOL_MINT);
 
   return (
@@ -73,6 +75,10 @@ function PositionCardInner({ position }: { position: PositionInfo }) {
         <div>
           <span className="block text-[10px] text-ash">Fees</span>
           <span className="font-mono text-[11px] text-cream">{fees}</span>
+        </div>
+        <div>
+          <span className="block text-[10px] text-ash">Value</span>
+          <span className="font-mono text-[11px] text-cream">{value}</span>
         </div>
         <div className="ml-auto">
           <span className="block text-[10px] text-ash">Age</span>

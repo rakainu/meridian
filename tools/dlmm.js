@@ -1044,11 +1044,14 @@ export async function getMyPositions({ force = false } = {}) {
       const ageFromState = trackedFinal?.deployed_at
         ? Math.floor((Date.now() - new Date(trackedFinal.deployed_at).getTime()) / 60000)
         : null;
-      const ageMinutes = Math.max(ageFromPnlApi ?? 0, ageFromState ?? 0) || null;
+      // Prefer state age (our own tracking) — API age can be null for fresh positions
+      const ageMinutes = ageFromState ?? ageFromPnlApi ?? null;
 
       const pnlUsdRounded = Math.round(pnlUsd * 100) / 100;
       const unclaimedRounded = Math.round(unclaimedFees * 100) / 100;
-      const totalValRounded = Math.round(totalValue * 100) / 100;
+      // If API returns 0 value for fresh position, fall back to initial deploy value
+      const totalValFallback = totalValue > 0 ? totalValue : (trackedFinal?.initial_value_usd || 0);
+      const totalValRounded = Math.round(totalValFallback * 100) / 100;
       const collectedRounded = Math.round(collectedFees * 100) / 100;
 
       // Composition: current token vs SOL amounts and USD split from LP Agent
