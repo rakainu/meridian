@@ -62,28 +62,14 @@ export default function App() {
       ) : (
         /* ── Journal view (full page) ── */
         <div className="flex flex-1 gap-4 overflow-hidden px-4 pb-4">
-          {/* Left: Trade table (wide) */}
-          <div className="flex flex-col" style={{ flex: "5 1 0%", minHeight: 0 }}>
-            <div className="mb-3">
-              <span className="text-sm font-semibold uppercase tracking-[1.5px]" style={{ color: "var(--color-text-dim)" }}>
-                Closed Trades
-              </span>
-            </div>
-            <div className="flex-1 overflow-y-auto pr-1">
-              <TradeJournal />
-            </div>
+          {/* Main: Stats + Chart + Trade Table */}
+          <div className="flex flex-1 flex-col overflow-y-auto pr-1" style={{ minHeight: 0 }}>
+            <TradeJournal />
           </div>
 
-          {/* Right: Analytics */}
-          <div className="flex flex-col gap-3" style={{ flex: "3 1 0%", minHeight: 0 }}>
-            <div className="mb-3">
-              <span className="text-sm font-semibold uppercase tracking-[1.5px]" style={{ color: "var(--color-text-dim)" }}>
-                Exit Analytics
-              </span>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              <ExitAnalytics />
-            </div>
+          {/* Sidebar: Exit Analytics */}
+          <div className="flex flex-col gap-3 overflow-y-auto" style={{ width: 340, flexShrink: 0, minHeight: 0 }}>
+            <ExitAnalytics />
           </div>
         </div>
       )}
