@@ -43,7 +43,7 @@ export default function TopBar({ connected, status, timers, wallet, onCommand }:
           className="rounded-md border px-3 py-1 text-xs font-medium transition-colors hover:bg-white/5"
           style={{ borderColor: "var(--color-border-accent)", color: "var(--color-teal)" }}
         >
-          ⏸ Pause
+          Pause
         </button>
       </div>
     </div>
