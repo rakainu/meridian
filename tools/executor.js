@@ -167,7 +167,9 @@ const toolMap = {
     const applied = {};
     const unknown = [];
 
+    const LOCKED_KEYS = new Set(["minVolume", "minFeeActiveTvlRatio"]);
     for (const [key, val] of Object.entries(changes)) {
+      if (LOCKED_KEYS.has(key)) { unknown.push(`${key} (locked — cannot be changed by agent)`); continue; }
       if (!CONFIG_KEY_MAP[key]) { unknown.push(key); continue; }
       // Coerce numeric strings to numbers (model sometimes passes "5" instead of 5)
       const coerced = typeof val === "string" && /^-?\d+(\.\d+)?$/.test(val) ? Number(val) : val;
